@@ -1,0 +1,115 @@
+/* Screener gate overlay — injected at document_start on YouTube. */
+#screener-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  background: rgba(15, 15, 15, 0.92);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #f1f1f1;
+  padding: 24px;
+  box-sizing: border-box;
+}
+#screener-overlay .so-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+#screener-overlay .so-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  text-align: center;
+}
+#screener-overlay .so-subtitle {
+  font-size: 14px;
+  color: #aaa;
+  margin-bottom: 24px;
+  text-align: center;
+  max-width: 480px;
+  line-height: 1.5;
+}
+#screener-overlay .so-btn {
+  padding: 10px 24px;
+  border-radius: 8px;
+  border: none;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+#screener-overlay .so-btn:hover {
+  opacity: 0.85;
+}
+#screener-overlay .so-btn.primary {
+  background: #ff0000;
+  color: #ffffff;
+}
+#screener-overlay .so-btn.secondary {
+  background: #272727;
+  color: #f1f1f1;
+  border: 1px solid #3f3f3f;
+}
+#screener-overlay .so-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+#screener-overlay .so-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+#screener-overlay .so-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #3f3f3f;
+  border-top-color: #ff0000;
+  border-radius: 50%;
+  animation: so-spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+@keyframes so-spin {
+  to { transform: rotate(360deg); }
+}
+#screener-overlay .so-countdown-note {
+  font-size: 12px;
+  color: #717171;
+  margin-top: 16px;
+  text-align: center;
+}
+#screener-overlay .so-diagnostic {
+  font-size: 11px;
+  color: #717171;
+  margin-top: -12px;
+  margin-bottom: 16px;
+  text-align: center;
+  font-family: monospace;
+}
+
+#screener-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483646;
+  background: #272727;
+  color: #f1f1f1;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid #3f3f3f;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.3s;
+  max-width: 480px;
+  text-align: center;
+  line-height: 1.4;
+}
+#screener-toast.visible {
+  opacity: 1;
+}

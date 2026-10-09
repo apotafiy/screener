@@ -1,0 +1,31 @@
+{
+  "name": "screener-yt",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Screener – Content Filter for the Web",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "build": "tsc --noEmit && vite build && vite build -c vite.content.config.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/chrome": "^0.2.7",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.71.0",
+    "vite": "^5.4.0",
+    "vitest": "^2.0.5"
+  }
+}

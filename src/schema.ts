@@ -1,4 +1,5 @@
 import type { PresetId, ProviderConfig, ProviderKind, Schedule, Settings } from './types';
+import { Strictness } from './types';
 import { PRESETS, sameProvider } from './defaults';
 
 export interface ValidationError {
@@ -8,6 +9,7 @@ export interface ValidationError {
 
 const VALID_KINDS: ProviderKind[] = ['jev', 'mock'];
 const VALID_PRESETS: PresetId[] = PRESETS.map((p) => p.id);
+const VALID_STRICTNESS: Strictness[] = [Strictness.Low, Strictness.Medium, Strictness.High];
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -120,6 +122,9 @@ export function validateSettings(input: unknown): { errors: ValidationError[]; s
   }
   if (input.allowTempBypass !== undefined && !isBool(input.allowTempBypass)) {
     errors.push({ path: 'allowTempBypass', message: 'must be a boolean' });
+  }
+  if (input.strictness !== undefined && !VALID_STRICTNESS.includes(input.strictness as Strictness)) {
+    errors.push({ path: 'strictness', message: 'must be one of ' + VALID_STRICTNESS.join(', ') });
   }
   const primary = validateProvider(input.provider, errors, 'provider');
   let fallback: ProviderConfig | null = null;

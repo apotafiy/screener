@@ -28,7 +28,7 @@ Two Jev presets are available:
 - **OpenRouter (Jev decision model)** — `typesafe/jev-1.13` via OpenRouter, an account you may already have. Default.
 - **TypeSafe (Jev decision model)** — the official `api.typesafe.ai` route. Note: TypeSafe paused new console signups in Sep 2026 (early access); use OpenRouter if you don't already have a TypeSafe key.
 
-Internally the check is expressed as two calibrated yes/no (`noul`) questions — "matches the BLOCK criteria?" and "clearly matches the ALLOW criteria?" — and the allow/block rules are applied in code (threshold 0.85), mirroring the documented rule order. The raw probabilities are cached and shown in the Test Criteria tool.
+Internally the check is expressed as two calibrated yes/no (`noul`) questions — "matches the BLOCK criteria?" and "clearly matches the ALLOW criteria?" — and the allow/block rules are applied in code against probability cutoffs set by a global **Strictness** level (Low/Medium/High), mirroring the documented rule order. The raw probabilities are cached and shown in the Test Criteria tool.
 
 ### Backup Provider (optional)
 
@@ -52,13 +52,13 @@ Enable the schedule and **Save Schedules**. The toolbar icon shows a red **ON** 
 
 ### Blocked video flow
 
-If blocked, you see an overlay with the schedule name (and the matched keyword, for keyword blocks). Press **Watch anyway** to start a 5-minute countdown; when it completes you can watch that video until the schedule window ends. Leaving the page resets the wait. Once earned, the bypass survives reloads and browser restarts. This bypass can be turned off under **Blocking** in Options, in which case the overlay has no way to continue.
+If blocked, you see an overlay with the schedule name (and the matched keyword, for keyword blocks). Press **Watch anyway** to start a 5-minute countdown; when it completes you can watch that video until the schedule window ends. Leaving the page resets the wait. Once earned, the bypass survives reloads and browser restarts. This bypass can be turned off under **Blocking** in Options, in which case the overlay has no way to continue. The same **Blocking** section holds a global **Strictness** level (Low/Medium/High) that shifts how readily the AI blocks.
 
 ### Test criteria
 
 Use the **Test Criteria** section in Options to evaluate a video against any schedule without waiting for a real blocking window. Paste a YouTube link and the extension resolves the same context a live check uses — title, channel, uploader tags, category, and the description — then runs the pipeline. This is 1:1 with a live judgement for that link.
 
-The result shows verdict, source, and latency — plus the calibrated probabilities behind an AI verdict (e.g. `P(matches block) 0.98 · P(matches allow) 0.02`) so you can see how close a video is to the 0.85 threshold. When YouTube returns no metadata for the link (private, deleted, or a consent wall), the tool reports an error instead of guessing.
+The result shows verdict, source, and latency — plus the calibrated probabilities behind an AI verdict (e.g. `P(matches block) 0.98 · P(matches allow) 0.02`) so you can see how close a video is to the current strictness cutoffs. When YouTube returns no metadata for the link (private, deleted, or a consent wall), the tool reports an error instead of guessing.
 
 ### Decision log
 

@@ -14,7 +14,7 @@ import type {
   DescriptionScrapeResponse,
   NoulDecision,
 } from '../types';
-import { MessageType, VerdictSource } from '../types';
+import { MessageType, Strictness, VerdictSource } from '../types';
 import { loadSettings, loadApiKey, loadFallbackApiKey } from '../storage';
 import { findActiveSchedule, minutesUntil } from '../schedule';
 import { matchList } from '../matcher';
@@ -184,7 +184,7 @@ async function decide(
     nouls: result.decision,
     primaryError: result.primaryError,
     judgement: {
-      verdict: verdictFromNouls(result.decision),
+      verdict: verdictFromNouls(result.decision, settings.strictness ?? Strictness.Medium),
       source: VerdictSource.Ai,
       viaFallback: result.usedFallback,
       ...scheduleRef,
@@ -229,7 +229,7 @@ async function evaluate(
   if (cached) {
     return {
       judgement: {
-        verdict: verdictFromNouls(cached.nouls),
+        verdict: verdictFromNouls(cached.nouls, settings.strictness ?? Strictness.Medium),
         source: VerdictSource.Cache,
         scheduleName: schedule.name,
         scheduleId: schedule.id,
@@ -248,7 +248,7 @@ async function evaluate(
     if (fbCached) {
       return {
         judgement: {
-          verdict: verdictFromNouls(fbCached.nouls),
+          verdict: verdictFromNouls(fbCached.nouls, settings.strictness ?? Strictness.Medium),
           source: VerdictSource.Cache,
           scheduleName: schedule.name,
           scheduleId: schedule.id,

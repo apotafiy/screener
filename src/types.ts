@@ -47,8 +47,16 @@ export interface Settings {
   fallbackProvider?: ProviderConfig;
   /** Whether the block overlay offers the "Watch anyway" bypass. Defaults to true. */
   allowTempBypass?: boolean;
+  /** How aggressively to block. Global. Defaults to 'medium'. */
+  strictness?: Strictness;
   /** array order = precedence when schedules overlap */
   schedules: Schedule[];
+}
+
+export enum Strictness {
+  Low = 'low',
+  Medium = 'medium',
+  High = 'high',
 }
 
 export type Verdict = 'allow' | 'block';

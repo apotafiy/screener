@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { validateSettings } from './schema';
 import { defaultSettings } from './defaults';
 import type { Settings } from './types';
+import { Strictness } from './types';
 
 describe('validateSettings', () => {
   it('accepts default settings', () => {
@@ -140,6 +141,22 @@ describe('validateSettings', () => {
   it('accepts settings without allowTempBypass', () => {
     const s = defaultSettings();
     delete (s as { allowTempBypass?: boolean }).allowTempBypass;
+    expect(validateSettings(s).errors).toEqual([]);
+  });
+
+  it('accepts each valid strictness level and rejects unknown ones', () => {
+    const s = defaultSettings();
+    for (const level of [Strictness.Low, Strictness.Medium, Strictness.High]) {
+      s.strictness = level;
+      expect(validateSettings(s).errors).toEqual([]);
+    }
+    (s as unknown as { strictness: unknown }).strictness = 'extreme';
+    expect(validateSettings(s).errors.some((e) => e.path === 'strictness')).toBe(true);
+  });
+
+  it('accepts settings without strictness', () => {
+    const s = defaultSettings();
+    delete (s as { strictness?: unknown }).strictness;
     expect(validateSettings(s).errors).toEqual([]);
   });
 });

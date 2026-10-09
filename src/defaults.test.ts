@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { presetById, PRESETS, defaultProvider, exampleSchedule, defaultSettings } from './defaults';
 import type { PresetId } from './types';
+import { Strictness } from './types';
 
 describe('presetById', () => {
   it('returns the correct preset', () => {
@@ -56,5 +57,9 @@ describe('defaultSettings', () => {
     expect(s.version).toBe(1);
     expect(s.schedules).toHaveLength(1);
     expect(s.schedules[0]!.enabled).toBe(false);
+  });
+
+  it('defaults to medium strictness', () => {
+    expect(defaultSettings().strictness).toBe(Strictness.Medium);
   });
 });

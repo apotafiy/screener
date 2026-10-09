@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Settings, ProviderConfig, Schedule } from '../types';
+import { Strictness } from '../types';
 import { defaultSettings } from '../defaults';
 import {
   loadSettings,
@@ -73,6 +74,11 @@ export function App() {
   const setAllowTempBypass = useCallback(
     (b: boolean) =>
       setSettings((prev) => ({ ...prev, allowTempBypass: b })),
+    [],
+  );
+  const setStrictness = useCallback(
+    (s: Strictness) =>
+      setSettings((prev) => ({ ...prev, strictness: s })),
     [],
   );
 
@@ -266,6 +272,23 @@ export function App() {
             starts a 5-minute countdown; once it finishes, the video can be
             watched for the rest of the schedule window. Turn off to block with
             no bypass — the overlay then has no way to continue.
+          </Help>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}>
+          <label style={{ margin: 0 }} htmlFor="strictness">Strictness</label>
+          <select
+            id="strictness"
+            value={settings.strictness ?? Strictness.Medium}
+            onChange={(e) => setStrictness(e.target.value as Strictness)}
+          >
+            <option value={Strictness.Low}>Low (most permissive)</option>
+            <option value={Strictness.Medium}>Medium</option>
+            <option value={Strictness.High}>High (strictest)</option>
+          </select>
+          <Help id="strictness">
+            How aggressively the AI verdict blocks, applied to every schedule.
+            Low blocks only on strong signals; High blocks more readily. This
+            only shifts the probability cutoffs — tune your criteria first.
           </Help>
         </div>
       </section>

@@ -1,4 +1,5 @@
 import type { PresetId, ProviderConfig, ProviderKind, Schedule, Settings } from './types';
+import { Strictness } from './types';
 
 export const DEFAULT_TIMEOUT_MS = 5000;
 
@@ -84,6 +85,7 @@ export function defaultSettings(): Settings {
     version: 1,
     provider: defaultProvider(),
     allowTempBypass: true,
+    strictness: Strictness.Medium,
     schedules: [exampleSchedule()],
   };
 }

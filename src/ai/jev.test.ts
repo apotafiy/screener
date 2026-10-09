@@ -8,7 +8,7 @@ const cfg: ProviderConfig = {
   presetId: 'typesafe',
   baseUrl: 'https://api.typesafe.ai/v1/systemone',
   model: 'jev-latest',
-  timeoutMs: 12000,
+  timeoutMs: 5000,
 };
 
 function sched(overrides: Partial<Schedule> = {}): Schedule {

@@ -1,5 +1,5 @@
 import type { PresetId, ProviderConfig, ProviderKind, Schedule, Settings } from './types';
-import { PRESETS } from './defaults';
+import { PRESETS, sameProvider } from './defaults';
 
 export interface ValidationError {
   path: string;
@@ -121,9 +121,16 @@ export function validateSettings(input: unknown): { errors: ValidationError[]; s
   if (input.allowTempBypass !== undefined && !isBool(input.allowTempBypass)) {
     errors.push({ path: 'allowTempBypass', message: 'must be a boolean' });
   }
-  validateProvider(input.provider, errors, 'provider');
+  const primary = validateProvider(input.provider, errors, 'provider');
+  let fallback: ProviderConfig | null = null;
   if (input.fallbackProvider !== undefined) {
-    validateProvider(input.fallbackProvider, errors, 'fallbackProvider');
+    fallback = validateProvider(input.fallbackProvider, errors, 'fallbackProvider');
+  }
+  if (primary && fallback && sameProvider(primary, fallback)) {
+    errors.push({
+      path: 'fallbackProvider',
+      message: 'must not be the same provider as the primary',
+    });
   }
   if (!Array.isArray(input.schedules)) {
     errors.push({ path: 'schedules', message: 'must be an array' });

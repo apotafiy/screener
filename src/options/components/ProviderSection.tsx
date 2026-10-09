@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import type { ProviderConfig, PresetId } from '../../types';
-import { PRESETS, DEFAULT_TIMEOUT_MS } from '../../defaults';
+import { PRESETS, DEFAULT_TIMEOUT_MS, sameProvider } from '../../defaults';
 import { Help } from './Help';
+
+function configFromPreset(p: typeof PRESETS[number], timeoutMs: number): ProviderConfig {
+  return { kind: p.kind, presetId: p.id, baseUrl: p.baseUrl, model: p.model, timeoutMs };
+}
 
 interface Props {
   provider: ProviderConfig;
@@ -60,14 +64,12 @@ export function ProviderSection({
 
   const handleFbEnabledChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
-      const p = PRESETS.find((x) => x.id === provider.presetId)!;
-      setFallbackProvider({
-        kind: p.kind,
-        presetId: provider.presetId,
-        baseUrl: p.baseUrl,
-        model: p.model,
-        timeoutMs: DEFAULT_TIMEOUT_MS,
-      });
+      // Default the backup to a provider that differs from the primary; an
+      // identical backup can only fail the same way, so it is not allowed.
+      const p =
+        PRESETS.find((x) => !sameProvider(configFromPreset(x, DEFAULT_TIMEOUT_MS), provider)) ??
+        PRESETS[0]!;
+      setFallbackProvider(configFromPreset(p, DEFAULT_TIMEOUT_MS));
     } else {
       setFallbackProvider(undefined);
       setFallbackApiKey('');
@@ -88,7 +90,11 @@ export function ProviderSection({
 
       <select id="prov-preset" value={provider.presetId} onChange={handlePresetChange}>
         {PRESETS.map((p) => (
-          <option key={p.id} value={p.id}>
+          <option
+            key={p.id}
+            value={p.id}
+            disabled={!!fbCfg && sameProvider(configFromPreset(p, provider.timeoutMs), fbCfg)}
+          >
             {p.label}
           </option>
         ))}
@@ -169,11 +175,13 @@ export function ProviderSection({
           Enable backup provider
         </label>
         <Help id="fb-provider">
-          If the primary provider fails, the backup is tried once. You only see
-          the error overlay when both providers fail; if only the primary
-          fails, a small toast appears instead. The backup uses its own timeout
-          and API key — consider a shorter timeout here since it&apos;s a
-          last-resort path.
+          If the primary provider fails, the backup is tried once. It must use
+          a different provider than the primary — two models on the same
+          endpoint share the same failure modes, so the backup wouldn&apos;t
+          help. You only see the error overlay when both providers fail; if
+          only the primary fails, a small toast appears instead. The backup
+          uses its own timeout and API key — consider a shorter timeout here
+          since it&apos;s a last-resort path.
         </Help>
       </div>
 
@@ -187,7 +195,11 @@ export function ProviderSection({
           onChange={handleFbPresetChange}
         >
           {PRESETS.map((p) => (
-            <option key={p.id} value={p.id}>
+            <option
+              key={p.id}
+              value={p.id}
+              disabled={sameProvider(configFromPreset(p, fbCfg?.timeoutMs ?? DEFAULT_TIMEOUT_MS), provider)}
+            >
               {p.label}
             </option>
           ))}

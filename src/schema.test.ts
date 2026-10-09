@@ -76,10 +76,16 @@ describe('validateSettings', () => {
 
   it('accepts optional fallbackProvider', () => {
     const s = defaultSettings();
-    s.fallbackProvider = { ...s.provider, model: 'backup-model' };
+    s.fallbackProvider = {
+      kind: 'jev',
+      presetId: 'typesafe',
+      baseUrl: 'https://api.typesafe.ai/v1/systemone',
+      model: 'jev-latest',
+      timeoutMs: 5000,
+    };
     const { errors, settings } = validateSettings(s);
     expect(errors).toEqual([]);
-    expect(settings?.fallbackProvider?.model).toBe('backup-model');
+    expect(settings?.fallbackProvider?.presetId).toBe('typesafe');
   });
 
   it('rejects invalid fallbackProvider timeout', () => {
@@ -87,6 +93,20 @@ describe('validateSettings', () => {
     s.fallbackProvider = { ...s.provider, timeoutMs: 999 };
     const { errors } = validateSettings(s);
     expect(errors.some((e) => e.path === 'fallbackProvider.timeoutMs')).toBe(true);
+  });
+
+  it('rejects a fallback identical to the primary', () => {
+    const s = defaultSettings();
+    s.fallbackProvider = { ...s.provider };
+    const { errors } = validateSettings(s);
+    expect(errors.some((e) => e.path === 'fallbackProvider')).toBe(true);
+  });
+
+  it('rejects a fallback on the same provider with a different model', () => {
+    const s = defaultSettings();
+    s.fallbackProvider = { ...s.provider, model: 'typesafe/jev-1.13-other' };
+    const { errors } = validateSettings(s);
+    expect(errors.some((e) => e.path === 'fallbackProvider')).toBe(true);
   });
 
   it('allows no fallbackProvider at all', () => {

@@ -2,6 +2,8 @@
 
 Blocks content that doesn't match your acceptance criteria, on a schedule you define. Currently supports YouTube, with more platforms (e.g. Reddit) planned. Suitable for self-imposed limits or parental content control.
 
+> **Status: in development.** This is an early, unpublished build.
+
 ## Install
 
 1. `npm install && npm run build`

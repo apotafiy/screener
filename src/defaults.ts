@@ -44,6 +44,15 @@ export function presetById(id: PresetId): Preset {
   return p;
 }
 
+/**
+ * True when two provider configs point at the same provider (service) — the
+ * kind and endpoint. Two models on one endpoint share the same failure domain
+ * (network, rate limit, auth, outage), so they don't count as a distinct backup.
+ */
+export function sameProvider(a: ProviderConfig, b: ProviderConfig): boolean {
+  return a.kind === b.kind && a.baseUrl === b.baseUrl;
+}
+
 export function defaultProvider(): ProviderConfig {
   const p = presetById('openrouter-jev');
   return {

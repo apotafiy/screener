@@ -6,7 +6,6 @@ import type {
   ProviderConfig,
   Schedule,
   Settings,
-  TempAllow,
   VideoMetadata,
   TestCriteriaResponse,
   MetadataRequest,
@@ -26,39 +25,15 @@ import { verdictFromNouls } from '../ai/decisions';
 import { resolveVideoContext } from '../youtube';
 import { appendLog } from '../log';
 import { recordStats, loadStats, type StatField } from '../stats';
+import { loadTempAllows, saveTempAllows, pruneTempAllows } from '../temp-allows';
 import { withLock } from '../mutex';
 
-const TEMP_ALLOWS_KEY = 'tempAllows';
 const FALLBACK_NOTICE_KEY = 'fallbackNotices';
 const BADGE_ALARM = 'badge-tick';
 
 // ---------------------------------------------------------------------------
 // temp allows (earned bypasses, scoped to a schedule window)
 // ---------------------------------------------------------------------------
-
-async function loadTempAllows(): Promise<Record<string, TempAllow>> {
-  const raw = await chrome.storage.local.get(TEMP_ALLOWS_KEY);
-  const v = raw[TEMP_ALLOWS_KEY];
-  return typeof v === 'object' && v !== null ? (v as Record<string, TempAllow>) : {};
-}
-
-async function saveTempAllows(allows: Record<string, TempAllow>): Promise<void> {
-  await chrome.storage.local.set({ [TEMP_ALLOWS_KEY]: allows });
-}
-
-async function pruneTempAllows(now: number): Promise<void> {
-  await withLock(async () => {
-    const allows = await loadTempAllows();
-    let changed = false;
-    for (const [id, a] of Object.entries(allows)) {
-      if (a.windowEndTs <= now) {
-        delete allows[id];
-        changed = true;
-      }
-    }
-    if (changed) await saveTempAllows(allows);
-  });
-}
 
 interface FallbackNotice {
   scheduleId: string;

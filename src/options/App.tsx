@@ -27,6 +27,7 @@ export function App() {
     message: string;
     kind: 'success' | 'error';
   } | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
@@ -293,31 +294,52 @@ export function App() {
         </div>
       </section>
 
-      <section>
-        <h2>Test Criteria</h2>
-        <TestSection
-          schedules={settings.schedules}
-        />
-      </section>
-
-      <section>
-        <h2>Decision Log</h2>
-        <LogSection />
-      </section>
-
-      <section>
-        <h2>Import / Export</h2>
-        <ImportExportSection
-          settings={settings}
-          onImport={handleImport}
-          showToast={showToast}
-        />
-      </section>
-
       <div style={{ textAlign: 'center', marginTop: '12px' }}>
         <button className="primary" onClick={handleSaveAll}>
           Save All Settings
         </button>
+      </div>
+
+      <div style={{ textAlign: 'center', marginTop: '20px' }}>
+        <button
+          type="button"
+          id="advanced-toggle"
+          aria-expanded={showAdvanced}
+          aria-controls="advanced-settings"
+          onClick={() => setShowAdvanced((v) => !v)}
+        >
+          {showAdvanced ? 'Hide advanced settings' : 'Advanced settings'}
+        </button>
+      </div>
+
+      <div id="advanced-settings" hidden={!showAdvanced} style={{ marginTop: '20px' }}>
+        <section>
+          <h2>
+            Preview a decision
+            <Help id="preview-decision">
+              Paste a YouTube link to see how the selected schedule would judge
+              it, without waiting for that schedule&apos;s window. It uses the
+              same title, channel, tags, category, and description as a live
+              check, and shows the probabilities against your strictness
+              cutoffs.
+            </Help>
+          </h2>
+          <TestSection schedules={settings.schedules} />
+        </section>
+
+        <section>
+          <h2>Decision Log</h2>
+          <LogSection />
+        </section>
+
+        <section>
+          <h2>Import / Export</h2>
+          <ImportExportSection
+            settings={settings}
+            onImport={handleImport}
+            showToast={showToast}
+          />
+        </section>
       </div>
 
       <Toast toast={toast} />

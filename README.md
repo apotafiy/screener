@@ -28,7 +28,7 @@ Two Jev presets are available:
 - **OpenRouter (Jev decision model)** — `typesafe/jev-1.13` via OpenRouter, an account you may already have. Default.
 - **TypeSafe (Jev decision model)** — the official `api.typesafe.ai` route. Note: TypeSafe paused new console signups in Sep 2026 (early access); use OpenRouter if you don't already have a TypeSafe key.
 
-Internally the check is expressed as two calibrated yes/no (`noul`) questions — "matches the BLOCK criteria?" and "clearly matches the ALLOW criteria?" — and the allow/block rules are applied in code against probability cutoffs set by a global **Strictness** level (Low/Medium/High), mirroring the documented rule order. The raw probabilities are cached and shown in the Test Criteria tool.
+Internally the check is expressed as two calibrated yes/no (`noul`) questions — "matches the BLOCK criteria?" and "clearly matches the ALLOW criteria?" — and the allow/block rules are applied in code against probability cutoffs set by a global **Strictness** level (Low/Medium/High), mirroring the documented rule order. The raw probabilities are cached and shown in the Preview a decision tool.
 
 ### Backup Provider (optional)
 
@@ -54,9 +54,9 @@ Enable the schedule and **Save Schedules**. The toolbar icon shows a red **ON** 
 
 If blocked, you see an overlay with the schedule name (and the matched keyword, for keyword blocks). Press **Watch anyway** to start a 5-minute countdown; when it completes you can watch that video until the schedule window ends. Leaving the page resets the wait. Once earned, the bypass survives reloads and browser restarts. This bypass can be turned off under **Blocking** in Options, in which case the overlay has no way to continue. The same **Blocking** section holds a global **Strictness** level (Low/Medium/High) that shifts how readily the AI blocks.
 
-### Test criteria
+### Preview a decision
 
-Use the **Test Criteria** section in Options to evaluate a video against any schedule without waiting for a real blocking window. Paste a YouTube link and the extension resolves the same context a live check uses — title, channel, uploader tags, category, and the description — then runs the pipeline. This is 1:1 with a live judgement for that link.
+Use the **Preview a decision** section in Options to evaluate a video against any schedule without waiting for a real blocking window. Paste a YouTube link and the extension resolves the same context a live check uses — title, channel, uploader tags, category, and the description — then runs the pipeline. This is 1:1 with a live judgement for that link.
 
 The result shows verdict, source, and latency — plus the calibrated probabilities behind an AI verdict (e.g. `P(matches block) 0.98 · P(matches allow) 0.02`) so you can see how close a video is to the current strictness cutoffs. When YouTube returns no metadata for the link (private, deleted, or a consent wall), the tool reports an error instead of guessing.
 
@@ -83,7 +83,7 @@ Export downloads your settings as JSON (API key excluded by design). Import repl
 - [ ] Age-restricted video: falls back to DOM scrape for metadata
 - [ ] Bad/missing API key: error overlay with Retry/Continue; Continue plays video
 - [ ] SPA navigation: navigate between two videos via YouTube's sidebar without page reload — each gets evaluated
-- [ ] Test Criteria: paste URL, verify verdict matches live evaluation
+- [ ] Preview a decision: paste URL, verify verdict matches live evaluation
 - [ ] Export/Import round-trip preserves all settings
 - [ ] Host permission granted on first Save for a real provider (check `chrome://extensions` → Screener → Details)
 - [ ] Backup provider: primary fails, backup succeeds → toast appears (once per schedule window), video not blocked by error overlay
@@ -157,4 +157,4 @@ The dual Vite build: `vite.config.ts` emits the ESM service worker, options page
 
 **API calls failing?** The error overlay appears on the video. Check your API key and model name in Options → Provider. Make sure you granted host permission when prompted on the first Save (check `chrome://extensions` → Screener → Details → "Has access to sites"). Use the Mock preset to verify the pipeline without an API key.
 
-**Blocked incorrectly?** Check the decision log in Options — it shows the source (keyword, AI, or cache) and, for keyword verdicts, the matched keyword. Tune your criteria in the Test Criteria tool, which also shows the calibrated probabilities behind an AI verdict.
+**Blocked incorrectly?** Check the decision log in Options — it shows the source (keyword, AI, or cache) and, for keyword verdicts, the matched keyword. Tune your criteria in the Preview a decision tool, which also shows the calibrated probabilities behind an AI verdict.

@@ -68,9 +68,29 @@ import { MessageType } from '../types';
     v.addEventListener('play', onVideoPlay, { capture: true, once: true });
   }
 
-  function suppressPlayback(): void {
-    if (playObserver) { playObserver.disconnect(); }
+  /**
+   * Stops observing and drops the play traps without resuming playback, so
+   * leaving a page cannot unmute or start a video on the way out.
+   */
+  function releaseSuppression(): void {
+    if (playObserver) { playObserver.disconnect(); playObserver = null; }
+    for (const v of suppressedVideos) {
+      v.removeEventListener('play', onVideoPlay, { capture: true });
+    }
     suppressedVideos.clear();
+  }
+
+  /**
+   * Stops watching for new videos but keeps the known ones trapped, so a
+   * blocked video cannot start audio again as a miniplayer after navigating
+   * to a non-watch page.
+   */
+  function freezeSuppression(): void {
+    if (playObserver) { playObserver.disconnect(); playObserver = null; }
+  }
+
+  function suppressPlayback(): void {
+    releaseSuppression();
     $$('video').forEach((v) => silenceVideo(v as HTMLVideoElement));
     playObserver = new MutationObserver((mutations) => {
       for (const m of mutations) {
@@ -86,13 +106,15 @@ import { MessageType } from '../types';
   }
 
   function restorePlayback(): void {
-    if (playObserver) { playObserver.disconnect(); playObserver = null; }
-    for (const v of suppressedVideos) {
-      v.removeEventListener('play', onVideoPlay, { capture: true });
+    const videos = [...suppressedVideos];
+    releaseSuppression();
+    for (const v of videos) {
+      // Skip elements the SPA already replaced; playing those would leak the
+      // outgoing video's audio.
+      if (!v.isConnected) continue;
       v.muted = false;
       v.play().catch(() => { });
     }
-    suppressedVideos.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -167,10 +189,16 @@ import { MessageType } from '../types';
     if (contBtn) contBtn.addEventListener('click', () => { destroyOverlay(); });
   }
 
-  function destroyOverlay(): void {
+  /** Removes the overlay and stops the countdown without touching playback. */
+  function removeOverlay(): void {
     stopCountdown();
-    restorePlayback();
     if (root) { root.remove(); root = null; }
+  }
+
+  /** Removes the overlay and resumes playback the overlay was suppressing. */
+  function destroyOverlay(): void {
+    removeOverlay();
+    restorePlayback();
   }
 
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -246,8 +274,9 @@ import { MessageType } from '../types';
     currentCheckVideoId = videoId;
 
     // Dismiss any previous overlay state immediately — no reason to delay
-    // tearing down a stale screen from a different video.
-    destroyOverlay();
+    // tearing down a stale screen from a different video. Playback stays
+    // suppressed until this check resolves, so no audio leaks mid-check.
+    removeOverlay();
 
     let settled = false;
     const sendPromise = chrome.runtime.sendMessage<CheckRequest, CheckResponse>({ type: MessageType.Check, videoId });
@@ -375,16 +404,36 @@ import { MessageType } from '../types';
   function onNavigate(): void {
     const videoId = getVideoId();
     if (videoId && videoId === currentCheckVideoId) return;
-    stopCountdown();
     currentCheckVideoId = null;
-    destroyOverlay();
-    if (isWatchPage()) doCheck();
+    // Never resume on the way out: destroyOverlay() would unmute and play the
+    // outgoing video before the destination check has run.
+    removeOverlay();
+    if (videoId) {
+      // Suppress before the async check so the destination cannot leak audio.
+      // This runs on yt-navigate-finish, after the new player exists, so an
+      // allow can resume the right element.
+      suppressPlayback();
+      doCheck();
+    } else {
+      freezeSuppression();
+    }
   }
 
-  // yt-navigate-finish is YouTube's own SPA navigation event.
-  // popstate covers browser back/forward.
+  // yt-navigate-finish is YouTube's own SPA navigation event, fired once the
+  // destination is rendered. Checking here (rather than on popstate) keeps a
+  // fast allow from resuming the outgoing player before the swap.
   document.addEventListener('yt-navigate-finish', () => { onNavigate(); });
-  window.addEventListener('popstate', () => onNavigate());
+
+  // Back/forward can restore an unmuted player before yt-navigate-finish, so
+  // mute and pause immediately; the check itself waits for the finish event.
+  window.addEventListener('popstate', () => {
+    const videoId = getVideoId();
+    if (!videoId || videoId === currentCheckVideoId) return;
+    // Invalidate the outgoing video's in-flight check so a late allow cannot
+    // unmute and play it over the destination.
+    currentCheckVideoId = null;
+    suppressPlayback();
+  });
 
   // If something enters fullscreen while the overlay is showing, re-parent
   // the overlay into that element so it stays visible inside the top layer.

@@ -53,9 +53,11 @@ import { MessageType } from '../types';
   function silenceVideo(v: HTMLVideoElement): void {
     if (suppressedVideos.has(v)) return;
     suppressedVideos.add(v);
+    // Register the trap before pausing: a player that reacts to pause() by
+    // calling play() again would otherwise slip past the one-shot listener.
+    v.addEventListener('play', onVideoPlay, { capture: true, once: true });
     v.muted = true;
     v.pause();
-    v.addEventListener('play', onVideoPlay, { capture: true, once: true });
   }
 
   // Uses once:true and re-registers on each fire rather than a persistent
@@ -63,9 +65,11 @@ import { MessageType } from '../types';
   function onVideoPlay(e: Event): void {
     const v = e.target as HTMLVideoElement;
     if (!suppressedVideos.has(v)) return;
+    // Re-arm before pausing so a player that calls play() again from its pause
+    // handler is still caught.
+    v.addEventListener('play', onVideoPlay, { capture: true, once: true });
     v.muted = true;
     v.pause();
-    v.addEventListener('play', onVideoPlay, { capture: true, once: true });
   }
 
   /**
@@ -105,15 +109,57 @@ import { MessageType } from '../types';
     playObserver.observe(document.documentElement, { childList: true, subtree: true });
   }
 
+  /**
+   * The media element for the current page's player. `html5-main-video` is
+   * YouTube's marker for the element that actually carries the media; the
+   * first `<video>` in the player can be a leftover or an ad video.
+   */
+  function activePlayer(): HTMLVideoElement | null {
+    const scopes = location.pathname.startsWith('/shorts/')
+      ? ['ytd-reel-video-renderer[is-active]', '#shorts-player']
+      : ['#movie_player'];
+    const matches = new Set<HTMLVideoElement>();
+    for (const scope of scopes) {
+      for (const el of Array.from($$(`${scope} video.html5-main-video`))) {
+        if (el.isConnected) matches.add(el as HTMLVideoElement);
+      }
+    }
+    if (matches.size === 0) return null;
+    // Several players can stay mounted. Pick the one actually on screen, not
+    // the first in tree order: a hidden 0x0 leftover must not win.
+    let best: HTMLVideoElement | null = null;
+    let bestArea = -1;
+    for (const v of matches) {
+      const r = v.getBoundingClientRect();
+      const w = Math.max(0, Math.min(r.right, window.innerWidth) - Math.max(r.left, 0));
+      const h = Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0));
+      const area = w * h;
+      if (area > bestArea) { best = v; bestArea = area; }
+    }
+    return best;
+  }
+
   function restorePlayback(): void {
     const videos = [...suppressedVideos];
     releaseSuppression();
+    const active = activePlayer();
+    if (!active) {
+      // Fail open: rather than leaving traps behind, resume everything we
+      // paused. A stray second stream is better than a video that cannot play.
+      for (const v of videos) {
+        if (!v.isConnected) continue;
+        v.muted = false;
+        v.play().catch(() => { });
+      }
+      return;
+    }
+    active.muted = false;
+    active.play().catch(() => { });
+    // Keep any leftover player quiet, but never trap the active element. A
+    // permanent trap is what made the watched video pause on every play.
     for (const v of videos) {
-      // Skip elements the SPA already replaced; playing those would leak the
-      // outgoing video's audio.
-      if (!v.isConnected) continue;
-      v.muted = false;
-      v.play().catch(() => { });
+      if (v === active || !v.isConnected) continue;
+      silenceVideo(v);
     }
   }
 

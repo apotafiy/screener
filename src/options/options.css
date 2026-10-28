@@ -198,6 +198,7 @@ button.small { padding: 4px 10px; font-size: 12px; }
 #log-table { max-height: 400px; overflow-y: auto; margin-top: 10px; }
 #log-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
 #log-table th, #log-table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border-soft); }
+#log-table td:first-child { white-space: nowrap; }
 #log-table th { position: sticky; top: 0; background: var(--panel); font-weight: 600; }
 .log-allow { color: #2e7d32; }
 .log-block { color: #c62828; }

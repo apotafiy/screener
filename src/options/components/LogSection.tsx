@@ -2,9 +2,14 @@ import React, { useState, useEffect } from 'react';
 import type { LogEntry, NoulDecision } from '../../types';
 import { loadLog, clearLog } from '../../log';
 
+/** Local time from year to seconds; the tooltip keeps the locale form. */
 function formatTime(ts: number): string {
   const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  );
 }
 
 function noulSummary(n: NoulDecision): string {
@@ -49,6 +54,7 @@ export function LogSection() {
               <tr>
                 <th>Time</th>
                 <th>Title</th>
+                <th>Schedule</th>
                 <th>Verdict</th>
                 <th>Source</th>
                 <th>Details</th>
@@ -58,12 +64,13 @@ export function LogSection() {
               {entries
                 .slice()
                 .reverse()
-                .map((e) => (
-                  <tr key={e.timestamp}>
+                .map((e, i) => (
+                  <tr key={`${e.timestamp}-${e.scheduleId ?? e.source}-${i}`}>
                     <td title={new Date(e.timestamp).toLocaleString()}>
                       {formatTime(e.timestamp)}
                     </td>
                     <td>{e.title.slice(0, 60)}</td>
+                    <td>{e.scheduleName ?? '—'}</td>
                     <td
                       className={`log-${e.verdict === 'block'
                           ? 'block'
@@ -78,7 +85,9 @@ export function LogSection() {
                       {e.source}
                       {e.viaFallback ? '*' : ''}
                     </td>
-                    <td>{e.reason ?? (e.nouls ? noulSummary(e.nouls) : '')}</td>
+                    <td>
+                      {e.reason ?? (e.nouls ? noulSummary(e.nouls) : e.error ?? '')}
+                    </td>
                   </tr>
                 ))}
             </tbody>

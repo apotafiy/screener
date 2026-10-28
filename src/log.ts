@@ -2,7 +2,7 @@ import type { LogEntry } from './types';
 import { withLock } from './mutex';
 
 const LOG_KEY = 'decisionLog';
-const MAX_ENTRIES = 200;
+const MAX_ENTRIES = 1000;
 
 export async function loadLog(): Promise<LogEntry[]> {
   const raw = await chrome.storage.local.get(LOG_KEY);
@@ -11,12 +11,17 @@ export async function loadLog(): Promise<LogEntry[]> {
   return arr as LogEntry[];
 }
 
-export async function appendLog(entry: LogEntry): Promise<void> {
+/**
+ * Appends one check's decisions in a single read-modify-write, so a stacked
+ * check stays contiguous and does not take the lock once per schedule.
+ */
+export async function appendLogs(entries: LogEntry[]): Promise<void> {
+  if (entries.length === 0) return;
   await withLock(async () => {
-    const entries = await loadLog();
-    entries.push(entry);
-    while (entries.length > MAX_ENTRIES) entries.shift();
-    await chrome.storage.local.set({ [LOG_KEY]: entries });
+    const log = await loadLog();
+    log.push(...entries);
+    while (log.length > MAX_ENTRIES) log.shift();
+    await chrome.storage.local.set({ [LOG_KEY]: log });
   });
 }
 

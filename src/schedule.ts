@@ -1,4 +1,4 @@
-import type { Schedule } from './types';
+import type { Schedule, TempAllow } from './types';
 
 export interface ActiveWindow {
   schedule: Schedule;
@@ -7,22 +7,23 @@ export interface ActiveWindow {
 }
 
 /**
- * Returns the first enabled schedule active at `now` (ms epoch),
- * or null if none is active. Array order = precedence, so the
- * first matching schedule wins when windows overlap.
+ * Every enabled schedule active at `now` (ms epoch), in list order. Callers
+ * that enforce a stack require all of them to pass; the order decides which
+ * failing schedule is reported first.
  */
-export function findActiveSchedule(schedules: Schedule[], now: number): ActiveWindow | null {
+export function findActiveSchedules(schedules: Schedule[], now: number): ActiveWindow[] {
   const date = new Date(now);
   const today = date.getDay();
   const mins = date.getHours() * 60 + date.getMinutes();
+  const active: ActiveWindow[] = [];
 
   for (const schedule of schedules) {
     if (!schedule.enabled) continue;
     if (isActive(schedule, today, mins)) {
-      return { schedule, windowEndTs: windowEndTs(schedule, now) };
+      active.push({ schedule, windowEndTs: windowEndTs(schedule, now) });
     }
   }
-  return null;
+  return active;
 }
 
 /**
@@ -67,6 +68,21 @@ export function windowEndTs(schedule: Schedule, now: number): number {
     }
   }
   return endDate.getTime();
+}
+
+/**
+ * Active windows that still need checking: a live earned bypass for a
+ * schedule removes only that schedule, not the whole stack.
+ */
+export function unbypassedSchedules(
+  active: ActiveWindow[],
+  earned: TempAllow[],
+  now: number,
+): ActiveWindow[] {
+  const live = earned.filter((a) => a.windowEndTs > now);
+  return active.filter(
+    ({ schedule }) => !live.some((a) => a.scheduleId === schedule.id),
+  );
 }
 
 export function minutesUntil(ts: number, now: number): number {

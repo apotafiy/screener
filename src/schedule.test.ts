@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Schedule } from './types';
-import { findActiveSchedule, isActive, windowEndTs, minutesUntil } from './schedule';
+import {
+  findActiveSchedules,
+  isActive,
+  unbypassedSchedules,
+  windowEndTs,
+  minutesUntil,
+} from './schedule';
 
 function sched(overrides: Partial<Schedule>): Schedule {
   return {
@@ -57,27 +63,53 @@ describe('isActive', () => {
 
   it('ignores disabled schedules', () => {
     const s = sched({ enabled: false });
-    expect(findActiveSchedule([s], at(1, 12, 0))).toBeNull();
+    expect(findActiveSchedules([s], at(1, 12, 0))).toEqual([]);
   });
 });
 
-describe('findActiveSchedule', () => {
-  it('returns null when nothing active', () => {
-    const s = sched({});
-    expect(findActiveSchedule([s], at(0, 12, 0))).toBeNull();
-  });
-
-  it('returns the active schedule', () => {
-    const s = sched({});
-    const result = findActiveSchedule([s], at(1, 10, 0));
-    expect(result?.schedule.id).toBe('s1');
-  });
-
-  it('first matching schedule wins on overlap', () => {
+describe('findActiveSchedules', () => {
+  it('returns every active schedule in list order', () => {
     const a = sched({ id: 'a', days: [1], startMinutes: 9 * 60, endMinutes: 12 * 60 });
     const b = sched({ id: 'b', days: [1], startMinutes: 10 * 60, endMinutes: 11 * 60 });
-    expect(findActiveSchedule([a, b], at(1, 10, 30))?.schedule.id).toBe('a');
-    expect(findActiveSchedule([b, a], at(1, 10, 30))?.schedule.id).toBe('b');
+    const c = sched({ id: 'c', days: [1], startMinutes: 12 * 60, endMinutes: 13 * 60 });
+    const active = findActiveSchedules([a, b, c], at(1, 10, 30));
+    expect(active.map((w) => w.schedule.id)).toEqual(['a', 'b']);
+  });
+
+  it('skips disabled and inactive schedules', () => {
+    const disabled = sched({ id: 'off', enabled: false });
+    const later = sched({ id: 'later', days: [1], startMinutes: 18 * 60, endMinutes: 19 * 60 });
+    const on = sched({ id: 'on', days: [1], startMinutes: 9 * 60, endMinutes: 17 * 60 });
+    expect(findActiveSchedules([disabled, later, on], at(1, 10, 0)).map((w) => w.schedule.id))
+      .toEqual(['on']);
+  });
+
+  it('returns an empty list when nothing is active', () => {
+    expect(findActiveSchedules([sched({})], at(0, 12, 0))).toEqual([]);
+  });
+});
+
+describe('unbypassedSchedules', () => {
+  it('drops only the schedule with a live bypass', () => {
+    const now = 1_000_000;
+    const a = { schedule: sched({ id: 'a' }), windowEndTs: now + 60_000 };
+    const b = { schedule: sched({ id: 'b' }), windowEndTs: now + 60_000 };
+    const remaining = unbypassedSchedules([a, b], [{ scheduleId: 'a', windowEndTs: now + 1 }], now);
+    expect(remaining.map((w) => w.schedule.id)).toEqual(['b']);
+  });
+
+  it('ignores expired bypasses', () => {
+    const now = 1_000_000;
+    const a = { schedule: sched({ id: 'a' }), windowEndTs: now + 60_000 };
+    const remaining = unbypassedSchedules([a], [{ scheduleId: 'a', windowEndTs: now }], now);
+    expect(remaining.map((w) => w.schedule.id)).toEqual(['a']);
+  });
+
+  it('ignores bypasses for schedules that are not active', () => {
+    const now = 1_000_000;
+    const a = { schedule: sched({ id: 'a' }), windowEndTs: now + 60_000 };
+    const remaining = unbypassedSchedules([a], [{ scheduleId: 'other', windowEndTs: now + 1 }], now);
+    expect(remaining.map((w) => w.schedule.id)).toEqual(['a']);
   });
 });
 

@@ -30,6 +30,30 @@ header { margin-bottom: 14px; }
 header h1 { font-size: 16px; font-weight: 600; }
 header span { display: block; font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
+/* Four rows fit before scrolling; keeps the popup from growing without bound. */
+.active-schedules {
+  max-height: 108px;
+  overflow-y: auto;
+  list-style: none;
+  margin-top: 4px;
+}
+.active-schedules li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--panel);
+  font-size: 12px;
+}
+.active-schedules li + li { margin-top: 4px; }
+.sched-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sched-time { flex: none; color: var(--text-muted); }
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

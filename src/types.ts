@@ -103,7 +103,25 @@ export interface Judgement {
   error?: string;
   warning?: string;
   viaFallback?: boolean;
+  /** Set when the backup provider produced this result. */
+  primaryError?: string;
+  /** Window this decision was made under, for per-window notices. */
+  windowEndTs?: number;
   nouls?: NoulDecision;
+}
+
+/**
+ * The selected outcome of one check: the response-relevant projection of a
+ * per-schedule Judgement, without audit-only fields.
+ */
+export interface FinalJudgement {
+  verdict: Verdict;
+  source: VerdictSource;
+  reason?: string;
+  scheduleName?: string;
+  error?: string;
+  warning?: string;
+  viaFallback?: boolean;
 }
 
 export interface CacheEntry {
@@ -129,10 +147,15 @@ export interface Stats {
 
 export interface LogEntry {
   timestamp: number;
+  videoId: string;
   title: string;
+  /** Which schedule made this decision, when one was involved. */
+  scheduleId?: string;
+  scheduleName?: string;
   verdict: Verdict;
   reason?: string;
   source: VerdictSource;
+  error?: string;
   viaFallback?: boolean;
   nouls?: NoulDecision;
 }
@@ -162,24 +185,24 @@ export type ExtensionRequest = ExtensionStatusRequest | TestCriteriaRequest;
 /** Valid from either context. */
 export type AnyRequest = TabRequest | ExtensionRequest | PingRequest;
 
-export interface CheckResponse {
+export interface CheckResponse extends FinalJudgement {
   type: MessageType.CheckResult;
   videoId: string;
-  verdict: Verdict;
-  reason?: string;
-  source: VerdictSource;
-  scheduleName?: string;
-  error?: string;
-  warning?: string;
-  viaFallback?: boolean;
   /** Whether the block overlay should offer the "Watch anyway" bypass. */
   canBypass?: boolean;
 }
 
+export interface ActiveScheduleStatus {
+  id: string;
+  name: string;
+  /** Epoch ms when this schedule's current window closes. */
+  windowEndTs: number;
+}
+
 export interface ExtensionStatusResponse {
   type: MessageType.ExtensionStatusResult;
-  scheduleName: string | null;
-  minutesRemaining: number | null;
+  /** Every schedule active now, in list order. */
+  schedules: ActiveScheduleStatus[];
   stats: Stats;
 }
 

@@ -245,9 +245,10 @@ export function App() {
             short-circuits before the AI runs. Prefix an entry with{' '}
             <code>channel:</code> to match the channel only. Empty allow
             criteria = allow everything; empty block criteria = block nothing;
-            both empty = no API call at all. When two schedules overlap in
-            time, the <strong>first enabled schedule in this list</strong>{' '}
-            wins — use the arrow buttons to set priority.
+            both empty = no API call at all. When schedules overlap in time,
+            every active schedule must allow the video. They run top to bottom,
+            and the <strong>first one that blocks or errors</strong> is the one
+            shown — use the arrow buttons to set which failure you see first.
           </Help>
         </h2>
         <SchedulesSection

@@ -62,7 +62,7 @@ The result shows verdict, source, and latency — plus the calibrated probabilit
 
 ### Decision log
 
-Every verdict is recorded (last 200 entries) with timestamp, title, verdict, source (`keyword`/`ai`/`cache`/`error`/`empty`/`bypass`/`dormant`), and details — the matched keyword for keyword verdicts, or the calibrated probabilities (`P(matches block) … · P(matches allow) …`) for AI and cache verdicts. Clear it from Options.
+Every schedule's decision is recorded (last 1000 entries) with timestamp, video id, title, schedule name, verdict, source (`keyword`/`ai`/`cache`/`error`/`empty`/`bypass`/`dormant`), and details — the matched keyword, the error text, or the calibrated probabilities (`P(matches block) … · P(matches allow) …`) for AI and cache verdicts. A stacked check writes one row per schedule, including cache hits and bypassed schedules, while the stats grid still counts each video once. Clear it from Options.
 
 ### Import / Export
 
@@ -108,7 +108,7 @@ src/
   matcher.ts      # Keyword list matching (title/channel, channel: prefix)
   cache.ts        # 2000-entry LRU decision cache (storage.session, stores nouls)
   stats.ts        # Daily counters with lazy midnight rollover
-  log.ts          # Decision log (last 200 entries)
+  log.ts          # Decision log (last 1000 schedule decisions)
   youtube.ts      # Video ID parsing, context resolver (watch page JSON, oEmbed)
   mutex.ts        # In-worker serialization helper for storage ops
   ai/

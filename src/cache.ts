@@ -89,6 +89,29 @@ export async function cacheGet(videoId: string, hash: string): Promise<CacheEntr
   });
 }
 
+export interface CacheHit {
+  entry: CacheEntry;
+  viaFallback: boolean;
+}
+
+/**
+ * Looks up a cached verdict for the primary hash, then for the fallback hash
+ * when it is a different slot. The hit records which config produced it.
+ */
+export async function findCached(
+  videoId: string,
+  primaryHash: string,
+  fallbackHash?: string,
+): Promise<CacheHit | null> {
+  const primary = await cacheGet(videoId, primaryHash);
+  if (primary) return { entry: primary, viaFallback: false };
+  if (fallbackHash && fallbackHash !== primaryHash) {
+    const fallback = await cacheGet(videoId, fallbackHash);
+    if (fallback) return { entry: fallback, viaFallback: true };
+  }
+  return null;
+}
+
 export async function cachePut(
   videoId: string,
   hash: string,

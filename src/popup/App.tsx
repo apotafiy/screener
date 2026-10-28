@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react';
 import type { ExtensionStatusRequest, ExtensionStatusResponse } from '../types';
 import { MessageType } from '../types';
+import { minutesUntil } from '../schedule';
+
+function formatRemaining(minutes: number): string {
+  if (minutes >= 60) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return `${minutes}m`;
+}
 
 export function App() {
   const [status, setStatus] = useState<ExtensionStatusResponse | null>(null);
   const [error, setError] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     chrome.runtime.sendMessage<ExtensionStatusRequest, ExtensionStatusResponse>({ type: MessageType.ExtensionStatus })
@@ -12,9 +19,27 @@ export function App() {
       .catch(() => setError(true));
   }, []);
 
+  // The response carries each window's end, so the popup can tick locally
+  // without waking the service worker every minute.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Drop a row exactly when its window closes, not on the next minute tick.
+  useEffect(() => {
+    if (!status) return;
+    const next = status.schedules
+      .map((x) => x.windowEndTs)
+      .filter((ts) => ts > Date.now())
+      .sort((a, b) => a - b)[0];
+    if (next === undefined) return;
+    const timer = setTimeout(() => setNow(Date.now()), next - Date.now() + 50);
+    return () => clearTimeout(timer);
+  }, [status, now]);
+
   const s = status?.stats;
-  const scheduleName = status?.scheduleName;
-  const minutesRemaining = status?.minutesRemaining;
+  const schedules = (status?.schedules ?? []).filter((x) => x.windowEndTs > now);
 
   return (
     <>
@@ -25,22 +50,27 @@ export function App() {
             <span>Extension error</span>
             <span>Check chrome://extensions</span>
           </>
-        ) : scheduleName ? (
-          <>
-            <span>Active: {scheduleName}</span>
-            {minutesRemaining !== null && minutesRemaining !== undefined ? (
-              <span>
-                Remaining: {Math.floor(minutesRemaining / 60)}h{' '}
-                {minutesRemaining % 60}m
-              </span>
-            ) : (
-              <span />
-            )}
-          </>
+        ) : !status ? (
+          <span>Loading…</span>
+        ) : schedules.length === 0 ? (
+          <span>No active schedule</span>
         ) : (
           <>
-            <span>No active schedule</span>
-            <span />
+            <span>
+              {schedules.length === 1
+                ? 'Active schedule'
+                : `Active schedules (${schedules.length})`}
+            </span>
+            <ul className="active-schedules">
+              {schedules.map((x) => (
+                <li key={x.id}>
+                  <div className="sched-name" title={x.name}>{x.name || '(unnamed)'}</div>
+                  <div className="sched-time">
+                    {formatRemaining(minutesUntil(x.windowEndTs, now))}
+                  </div>
+                </li>
+              ))}
+            </ul>
           </>
         )}
       </header>

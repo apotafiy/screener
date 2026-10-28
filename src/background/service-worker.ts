@@ -2,6 +2,7 @@ import type {
   CheckResponse,
   AnyRequest,
   ExtensionStatusResponse,
+  FinalJudgement,
   Judgement,
   ProviderConfig,
   Schedule,
@@ -16,16 +17,17 @@ import type {
 } from '../types';
 import { MessageType, Strictness, VerdictSource } from '../types';
 import { loadSettings, loadApiKey, loadFallbackApiKey } from '../storage';
-import { findActiveSchedule, minutesUntil } from '../schedule';
+import { findActiveSchedules, unbypassedSchedules } from '../schedule';
 import { matchList } from '../matcher';
-import { criteriaHash, cacheGet, cachePut } from '../cache';
+import { criteriaHash, cachePut, findCached } from '../cache';
 import { presetById } from '../defaults';
 import { judge } from '../ai/judge';
 import { verdictFromNouls } from '../ai/decisions';
+import { fallbackDecisions, finalizeJudgement, judgementFromCache } from '../outcome';
 import { resolveVideoContext } from '../youtube';
-import { appendLog } from '../log';
+import { appendLogs } from '../log';
 import { recordStats, loadStats, type StatField } from '../stats';
-import { loadTempAllows, saveTempAllows, pruneTempAllows } from '../temp-allows';
+import { addTempAllows, loadTempAllows, saveTempAllows, pruneTempAllows } from '../temp-allows';
 import { withLock } from '../mutex';
 
 const FALLBACK_NOTICE_KEY = 'fallbackNotices';
@@ -108,7 +110,8 @@ async function scrapeDescription(tabId: number): Promise<string | undefined> {
 // ---------------------------------------------------------------------------
 
 interface Evaluation {
-  judgement: Judgement;
+  /** One entry per schedule, in evaluation order. Stops at first block/error. */
+  decisions: Judgement[];
   metadata: VideoMetadata | null;
 }
 
@@ -198,143 +201,148 @@ async function evaluate(
   settings: Settings,
 ): Promise<Evaluation> {
   const now = Date.now();
-  const active = findActiveSchedule(settings.schedules, now);
+  const active = findActiveSchedules(settings.schedules, now);
+  const strictness = settings.strictness ?? Strictness.Medium;
 
-  if (!active) {
-    return { judgement: { verdict: 'allow', source: VerdictSource.Dormant }, metadata: null };
-  }
-  const { schedule, windowEndTs } = active;
+  if (active.length === 0) return { decisions: [], metadata: null };
 
-  // earned bypass
+  // A schedule with a live earned bypass is skipped; the rest still apply.
   const allows = await loadTempAllows();
-  const existing = allows[videoId];
-  if (existing && existing.scheduleId === schedule.id && existing.windowEndTs > now) {
-    return {
-      judgement: {
+  const pending = unbypassedSchedules(active, allows[videoId] ?? [], now);
+  const pendingIds = new Set(pending.map(({ schedule }) => schedule.id));
+  const decisions: Judgement[] = [];
+
+  let metadata: VideoMetadata | null = null;
+  let cacheMeta: VideoMetadata | null = null;
+
+  // Every active schedule must allow. Stop on the first block or error. Each
+  // schedule appends one decision so the log records bypasses and cache hits,
+  // not just the final verdict.
+  for (const { schedule, windowEndTs } of active) {
+    if (!pendingIds.has(schedule.id)) {
+      decisions.push({
         verdict: 'allow',
         source: VerdictSource.Bypass,
         scheduleName: schedule.name,
         scheduleId: schedule.id,
-      },
-      metadata: null,
-    };
-  }
+        windowEndTs,
+      });
+      continue;
+    }
 
-  const primaryHash = criteriaHash(schedule, settings.provider);
-  const fallbackProvider = settings.fallbackProvider;
-  const fallbackHash = fallbackProvider ? criteriaHash(schedule, fallbackProvider) : undefined;
+    const primaryHash = criteriaHash(schedule, settings.provider);
+    const fallbackProvider = settings.fallbackProvider;
+    const fallbackHash = fallbackProvider ? criteriaHash(schedule, fallbackProvider) : undefined;
 
-  // cache — check the primary entry, then the fallback entry, before any API call.
-  const cached = await cacheGet(videoId, primaryHash);
-  if (cached) {
-    return {
-      judgement: {
-        verdict: verdictFromNouls(cached.nouls, settings.strictness ?? Strictness.Medium),
-        source: VerdictSource.Cache,
-        scheduleName: schedule.name,
-        scheduleId: schedule.id,
-        nouls: cached.nouls,
-      },
-      metadata: cached.title ? { title: cached.title, channel: '' } : null,
-    };
-  }
+    // cache — primary slot first, then the fallback slot when it differs.
+    const hit = await findCached(videoId, primaryHash, fallbackHash);
+    if (hit) {
+      const judgement = judgementFromCache(
+        hit.entry,
+        schedule,
+        windowEndTs,
+        strictness,
+        hit.viaFallback,
+      );
+      decisions.push(judgement);
+      if (hit.entry.title) cacheMeta = { title: hit.entry.title, channel: '' };
+      if (judgement.verdict === 'block') {
+        return { decisions, metadata: metadata ?? cacheMeta };
+      }
+      continue;
+    }
 
-  // baseUrl is intentionally excluded from criteriaHash, so different Jev
-  // endpoints (e.g. TypeSafe vs OpenRouter) with the same kind/model share a
-  // cache slot. Skip the duplicate fallback lookup when both configs hash to
-  // that slot.
-  if (fallbackHash && fallbackHash !== primaryHash) {
-    const fbCached = await cacheGet(videoId, fallbackHash);
-    if (fbCached) {
-      return {
-        judgement: {
-          verdict: verdictFromNouls(fbCached.nouls, settings.strictness ?? Strictness.Medium),
-          source: VerdictSource.Cache,
+    // Context shared by live checks and pasted-link tests: title, channel, tags,
+    // category, and description. Fetched once and reused across schedules.
+    if (!metadata) {
+      let loaded = await resolveVideoContext(videoId);
+      if (!loaded?.title && !loaded?.channel) {
+        loaded = await scrapeMetadata(tabId);
+      }
+      if (!loaded) {
+        decisions.push({
+          verdict: 'allow',
+          source: VerdictSource.Error,
+          error: 'Could not read video metadata.',
           scheduleName: schedule.name,
           scheduleId: schedule.id,
-          viaFallback: true,
-          nouls: fbCached.nouls,
-        },
-        metadata: fbCached.title ? { title: fbCached.title, channel: '' } : null,
-      };
+          windowEndTs,
+        });
+        return { decisions, metadata: metadata ?? cacheMeta };
+      }
+      // Description fallback from the open tab when the watch page had none.
+      if (!loaded.description) {
+        loaded.description = await scrapeDescription(tabId);
+      }
+      metadata = loaded;
     }
-  }
 
-  // Context shared by live checks and pasted-link tests: title, channel, tags,
-  // category, and description. Fetched from the watch page; the open tab DOM is
-  // a last resort for title/channel.
-  let metadata = await resolveVideoContext(videoId);
-  if (!metadata?.title && !metadata?.channel) {
-    metadata = await scrapeMetadata(tabId);
-  }
-  if (!metadata) {
-    return {
-      judgement: {
-        verdict: 'allow',
-        source: VerdictSource.Error,
-        error: 'Could not read video metadata.',
-        scheduleName: schedule.name,
-        scheduleId: schedule.id,
-      },
-      metadata: null,
-    };
-  }
-
-  // Description fallback from the open tab when the watch page had none.
-  if (!metadata.description) {
-    metadata.description = await scrapeDescription(tabId);
-  }
-
-  const decision = await decide(schedule, metadata, settings);
-  if (!decision.nouls) {
-    if (decision.judgement.source === VerdictSource.Error) {
-      console.error('Screener: AI call failed', decision.judgement.error);
-      const detail = settings.fallbackProvider
-        ? `the ${providerLabel(settings.provider)} API (primary) and the ${providerLabel(settings.fallbackProvider)} API (backup)`
-        : `the ${providerLabel(settings.provider)} API`;
-      return {
-        judgement: {
+    const decision = await decide(schedule, metadata, settings);
+    if (!decision.nouls) {
+      if (decision.judgement.source === VerdictSource.Error) {
+        console.error('Screener: AI call failed', decision.judgement.error);
+        const detail = settings.fallbackProvider
+          ? `the ${providerLabel(settings.provider)} API (primary) and the ${providerLabel(settings.fallbackProvider)} API (backup)`
+          : `the ${providerLabel(settings.provider)} API`;
+        decisions.push({
           ...decision.judgement,
           error: `There was an error calling ${detail}. Full details have been logged in the extension's service worker console (chrome://extensions → Screener → service worker).`,
-        },
-        metadata: metadata,
-      };
+          windowEndTs,
+        });
+        return { decisions, metadata };
+      }
+      decisions.push({ ...decision.judgement, windowEndTs });
+      if (decision.judgement.verdict === 'block') {
+        return { decisions, metadata };
+      }
+      continue;
     }
-    return { judgement: decision.judgement, metadata: metadata };
+
+    const cacheHash = decision.judgement.viaFallback && fallbackHash ? fallbackHash : primaryHash;
+    await cachePut(videoId, cacheHash, decision.nouls, metadata.title);
+    decisions.push({
+      ...decision.judgement,
+      nouls: decision.nouls,
+      primaryError: decision.primaryError,
+      windowEndTs,
+    });
+    if (decision.judgement.verdict === 'block') {
+      return { decisions, metadata };
+    }
   }
 
-  let warning: string | undefined;
-  if (decision.judgement.viaFallback && decision.primaryError) {
-    const show = await shouldShowFallbackToast(schedule.id, windowEndTs);
-    if (show) {
-      console.warn('Screener: primary provider failed, used backup', decision.primaryError);
-      warning = `${providerLabel(settings.provider)} API failed, used backup provider. Details logged in the extension's service worker console.`;
-    }
-  }
-
-  const cacheHash = decision.judgement.viaFallback && fallbackHash ? fallbackHash : primaryHash;
-  await cachePut(videoId, cacheHash, decision.nouls, metadata.title);
-  return { judgement: { ...decision.judgement, warning, nouls: decision.nouls }, metadata: metadata };
+  return { decisions, metadata: metadata ?? cacheMeta };
 }
 
-async function recordDecision(videoId: string, j: Judgement, meta: VideoMetadata | null): Promise<void> {
-  if (j.source === VerdictSource.Dormant) return; // off-schedule: not logged
+async function recordDecisions(
+  videoId: string,
+  final: FinalJudgement,
+  decisions: Judgement[],
+  meta: VideoMetadata | null,
+): Promise<void> {
+  if (final.source === VerdictSource.Dormant) return; // off-schedule: not logged
 
-  const fields: StatField[] = ['checked', j.verdict === 'block' ? 'blocked' : 'allowed'];
-  if (j.source === VerdictSource.Cache) fields.push('cached');
-  if (j.source === VerdictSource.Error) fields.push('errors');
+  // Stats stay per video; the log gets one row per schedule.
+  const fields: StatField[] = ['checked', final.verdict === 'block' ? 'blocked' : 'allowed'];
+  if (final.source === VerdictSource.Cache) fields.push('cached');
+  if (final.source === VerdictSource.Error) fields.push('errors');
   await recordStats(fields);
 
+  const timestamp = Date.now();
   const title = meta?.title ?? videoId;
-  await appendLog({
-    timestamp: Date.now(),
+  await appendLogs(decisions.map((d) => ({
+    timestamp,
+    videoId,
     title,
-    verdict: j.verdict,
-    reason: j.reason,
-    source: j.source,
-    viaFallback: j.viaFallback,
-    nouls: j.nouls,
-  });
+    scheduleId: d.scheduleId,
+    scheduleName: d.scheduleName,
+    verdict: d.verdict,
+    reason: d.reason,
+    source: d.source,
+    error: d.error,
+    viaFallback: d.viaFallback,
+    nouls: d.nouls,
+  })));
 }
 
 // ---------------------------------------------------------------------------
@@ -343,8 +351,8 @@ async function recordDecision(videoId: string, j: Judgement, meta: VideoMetadata
 
 async function updateBadge(): Promise<void> {
   const settings = await loadSettings();
-  const active = findActiveSchedule(settings.schedules, Date.now());
-  if (active) {
+  const active = findActiveSchedules(settings.schedules, Date.now());
+  if (active.length > 0) {
     await chrome.action.setBadgeText({ text: 'ON' });
     await chrome.action.setBadgeBackgroundColor({ color: '#ff0000' });
   } else {
@@ -408,30 +416,65 @@ function failOpenResponse(videoId: string, e: unknown): CheckResponse {
   };
 }
 
+/**
+ * Builds one warning from every schedule that used the backup, not only the
+ * schedule whose verdict won. Notices still show once per schedule window.
+ */
+async function collectFallbackWarning(
+  decisions: Judgement[],
+  primaryLabel: string,
+): Promise<string | undefined> {
+  const used = fallbackDecisions(decisions);
+  if (used.length === 0) return undefined;
+
+  const names = new Set<string>();
+  for (const d of used) {
+    console.warn('Screener: primary provider failed, used backup', d.primaryError);
+    if (!d.scheduleId || d.windowEndTs === undefined) continue;
+    if (await shouldShowFallbackToast(d.scheduleId, d.windowEndTs)) {
+      names.add(d.scheduleName ?? 'a schedule');
+    }
+  }
+  if (names.size === 0) return undefined;
+  return `${primaryLabel} API failed, used backup provider for ${[...names].join(', ')}. Details logged in the extension's service worker console.`;
+}
+
 async function handleCheck(videoId: string, tabId: number): Promise<CheckResponse> {
-  let j: Judgement;
+  let decisions: Judgement[] = [];
   let meta: VideoMetadata | null = null;
+  let primaryLabel: string | undefined;
   let canBypass = false;
 
   try {
     const settings = await loadSettings();
     canBypass = settings.allowTempBypass !== false;
+    primaryLabel = providerLabel(settings.provider);
     const result = await evaluate(videoId, tabId, settings);
-    j = result.judgement;
+    decisions = result.decisions;
     meta = result.metadata;
   } catch (e) {
     // Unexpected failure (e.g. storage error) must still fail open.
     console.error('Screener: unexpected error during check', e);
-    j = {
+    decisions = [{
       verdict: 'allow',
       source: VerdictSource.Error,
       error: 'An unexpected error occurred. Full details have been logged in the extension\'s service worker console (chrome://extensions → Screener → service worker).',
-    };
+    }];
   }
+
+  let warning: string | undefined;
+  if (primaryLabel) {
+    try {
+      warning = await collectFallbackWarning(decisions, primaryLabel);
+    } catch (e) {
+      console.warn('Screener: failed to build fallback warning', e);
+    }
+  }
+  const final = finalizeJudgement(decisions, warning);
 
   // Bookkeeping must never prevent the response from being sent.
   try {
-    await recordDecision(videoId, j, meta);
+    await recordDecisions(videoId, final, decisions, meta);
   } catch (e) {
     console.warn('Screener: failed to record decision', e);
   }
@@ -439,14 +482,8 @@ async function handleCheck(videoId: string, tabId: number): Promise<CheckRespons
   return {
     type: MessageType.CheckResult,
     videoId,
-    verdict: j.verdict,
-    reason: j.reason,
-    source: j.source,
-    scheduleName: j.scheduleName,
-    error: j.error,
-    warning: j.warning,
-    viaFallback: j.viaFallback,
     canBypass,
+    ...final,
   };
 }
 
@@ -454,19 +491,21 @@ async function handleExtensionStatus(): Promise<ExtensionStatusResponse> {
   try {
     const settings = await loadSettings();
     const now = Date.now();
-    const active = findActiveSchedule(settings.schedules, now);
+    const active = findActiveSchedules(settings.schedules, now);
     const stats = await loadStats();
     return {
       type: MessageType.ExtensionStatusResult,
-      scheduleName: active ? active.schedule.name : null,
-      minutesRemaining: active ? minutesUntil(active.windowEndTs, now) : null,
+      schedules: active.map(({ schedule, windowEndTs }) => ({
+        id: schedule.id,
+        name: schedule.name,
+        windowEndTs,
+      })),
       stats,
     };
   } catch {
     return {
       type: MessageType.ExtensionStatusResult,
-      scheduleName: null,
-      minutesRemaining: null,
+      schedules: [],
       stats: { date: '', checked: 0, blocked: 0, allowed: 0, cached: 0, errors: 0 },
     };
   }
@@ -506,10 +545,15 @@ async function handleTempBypass(videoId: string): Promise<void> {
     const settings = await loadSettings();
     if (settings.allowTempBypass === false) return;
     const now = Date.now();
-    const active = findActiveSchedule(settings.schedules, now);
-    if (!active) return;
+    const active = findActiveSchedules(settings.schedules, now);
+    if (active.length === 0) return;
     const allows = await loadTempAllows();
-    allows[videoId] = { scheduleId: active.schedule.id, windowEndTs: active.windowEndTs };
+    // One wait covers every schedule open right now, each until its own end.
+    allows[videoId] = addTempAllows(
+      allows[videoId] ?? [],
+      active.map(({ schedule, windowEndTs }) => ({ scheduleId: schedule.id, windowEndTs })),
+      now,
+    );
     await saveTempAllows(allows);
   });
 }

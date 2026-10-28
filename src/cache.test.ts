@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { criteriaHash, cachePut, cacheGet, touchLru, evictToCap } from './cache';
+import { criteriaHash, cachePut, cacheGet, findCached, touchLru, evictToCap } from './cache';
 import type { CacheEntry, Schedule } from './types';
 
 function sched(overrides: Partial<Schedule> = {}): Schedule {
@@ -120,6 +120,32 @@ describe('cacheGet/cachePut', () => {
     await cachePut('vid1', 'hash1', { matchesBlock: 0.98 });
     const got = await cacheGet('vid1', 'hash1');
     expect(got?.title).toBeUndefined();
+  });
+});
+
+describe('findCached', () => {
+  it('returns the primary hit first', async () => {
+    await cachePut('vid1', 'primary', { matchesBlock: 0.2 }, 'Primary title');
+    const hit = await findCached('vid1', 'primary', 'fallback');
+    expect(hit?.viaFallback).toBe(false);
+    expect(hit?.entry.title).toBe('Primary title');
+  });
+
+  it('falls back when the primary slot misses', async () => {
+    await cachePut('vid1', 'fallback', { matchesBlock: 0.2 }, 'Fallback title');
+    const hit = await findCached('vid1', 'primary', 'fallback');
+    expect(hit?.viaFallback).toBe(true);
+    expect(hit?.entry.title).toBe('Fallback title');
+  });
+
+  it('returns null when both slots miss', async () => {
+    expect(await findCached('vid1', 'primary', 'fallback')).toBeNull();
+  });
+
+  it('stays on the primary when both hashes match', async () => {
+    await cachePut('vid1', 'same', { matchesBlock: 0.2 });
+    const hit = await findCached('vid1', 'same', 'same');
+    expect(hit?.viaFallback).toBe(false);
   });
 });
 

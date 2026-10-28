@@ -105,8 +105,8 @@ export interface Judgement {
   viaFallback?: boolean;
   /** Set when the backup provider produced this result. */
   primaryError?: string;
-  /** Window this decision was made under, for per-window notices. */
-  windowEndTs?: number;
+  /** Stable id of the schedule window this decision was made under. */
+  scheduleInstanceKey?: string;
   nouls?: NoulDecision;
 }
 

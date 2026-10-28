@@ -85,6 +85,41 @@ export function unbypassedSchedules(
   );
 }
 
+/**
+ * Local calendar date key (`YYYY-MM-DD`) for a timestamp.
+ */
+export function localDateKey(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Timestamp at which the window active at `now` started. For a spanning
+ * window after midnight, that is the previous day's start.
+ */
+export function windowStartTs(schedule: Schedule, now: number): number {
+  const date = new Date(now);
+  const mins = date.getHours() * 60 + date.getMinutes();
+  const { startMinutes: start, endMinutes: end } = schedule;
+  const startDate = new Date(date);
+  // end <= start spans midnight; before `end` we are in yesterday's instance.
+  if (end <= start && mins < end) {
+    startDate.setDate(startDate.getDate() - 1);
+  }
+  startDate.setHours(0, start, 0, 0);
+  return startDate.getTime();
+}
+
+/**
+ * Stable id for the schedule window instance containing `now`: the local date
+ * the window started. Changing a schedule's times on the same day keeps the
+ * same instance; a new start date is a new instance.
+ */
+export function scheduleInstanceKey(schedule: Schedule, now: number): string {
+  return localDateKey(windowStartTs(schedule, now));
+}
+
 export function minutesUntil(ts: number, now: number): number {
   return Math.max(0, Math.ceil((ts - now) / 60000));
 }

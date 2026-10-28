@@ -3,6 +3,7 @@ import type { Schedule } from './types';
 import {
   findActiveSchedules,
   isActive,
+  scheduleInstanceKey,
   unbypassedSchedules,
   windowEndTs,
   minutesUntil,
@@ -86,6 +87,30 @@ describe('findActiveSchedules', () => {
 
   it('returns an empty list when nothing is active', () => {
     expect(findActiveSchedules([sched({})], at(0, 12, 0))).toEqual([]);
+  });
+});
+
+describe('scheduleInstanceKey', () => {
+  it('uses the local start date for a normal window', () => {
+    const s = sched({ days: [1], startMinutes: 9 * 60, endMinutes: 17 * 60 });
+    expect(scheduleInstanceKey(s, at(1, 10, 0))).toBe('2024-01-08');
+  });
+
+  it('keeps the start date for the pre-midnight half of a spanning window', () => {
+    const s = sched({ days: [5], startMinutes: 22 * 60, endMinutes: 2 * 60 });
+    expect(scheduleInstanceKey(s, at(5, 23, 0))).toBe('2024-01-12');
+  });
+
+  it('uses the previous day for the post-midnight half of a spanning window', () => {
+    const s = sched({ days: [5], startMinutes: 22 * 60, endMinutes: 2 * 60 });
+    expect(scheduleInstanceKey(s, at(6, 1, 0))).toBe('2024-01-12');
+  });
+
+  it('does not change when the start time changes on the same day', () => {
+    const a = sched({ days: [1], startMinutes: 9 * 60, endMinutes: 17 * 60 });
+    const b = sched({ days: [1], startMinutes: 8 * 60, endMinutes: 17 * 60 });
+    expect(scheduleInstanceKey(a, at(1, 10, 0)))
+      .toBe(scheduleInstanceKey(b, at(1, 10, 0)));
   });
 });
 

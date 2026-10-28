@@ -17,7 +17,12 @@ import type {
 } from '../types';
 import { MessageType, Strictness, VerdictSource } from '../types';
 import { loadSettings, loadApiKey, loadFallbackApiKey } from '../storage';
-import { findActiveSchedules, unbypassedSchedules } from '../schedule';
+import {
+  findActiveSchedules,
+  localDateKey,
+  scheduleInstanceKey,
+  unbypassedSchedules,
+} from '../schedule';
 import { matchList } from '../matcher';
 import { criteriaHash, cachePut, findCached } from '../cache';
 import { presetById } from '../defaults';
@@ -39,7 +44,8 @@ const BADGE_ALARM = 'badge-tick';
 
 interface FallbackNotice {
   scheduleId: string;
-  windowEndTs: number;
+  /** Local start date of the schedule window instance. */
+  scheduleInstanceKey: string;
 }
 
 async function loadFallbackNotices(): Promise<Record<string, FallbackNotice>> {
@@ -52,12 +58,15 @@ async function saveFallbackNotices(notices: Record<string, FallbackNotice>): Pro
   await chrome.storage.session.set({ [FALLBACK_NOTICE_KEY]: notices });
 }
 
-async function shouldShowFallbackToast(scheduleId: string, windowEndTs: number): Promise<boolean> {
+async function shouldShowFallbackToast(
+  scheduleId: string,
+  scheduleInstanceKey: string,
+): Promise<boolean> {
   return withLock(async () => {
     const notices = await loadFallbackNotices();
     const existing = notices[scheduleId];
-    if (existing && existing.windowEndTs === windowEndTs) return false;
-    notices[scheduleId] = { scheduleId, windowEndTs };
+    if (existing && existing.scheduleInstanceKey === scheduleInstanceKey) return false;
+    notices[scheduleId] = { scheduleId, scheduleInstanceKey };
     await saveFallbackNotices(notices);
     return true;
   });
@@ -66,9 +75,13 @@ async function shouldShowFallbackToast(scheduleId: string, windowEndTs: number):
 async function pruneFallbackNotices(now: number): Promise<void> {
   await withLock(async () => {
     const notices = await loadFallbackNotices();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    // Keep yesterday too: a window spanning midnight still belongs to it.
+    const cutoff = localDateKey(yesterday.getTime());
     let changed = false;
     for (const [id, n] of Object.entries(notices)) {
-      if (n.windowEndTs <= now) {
+      if (typeof n.scheduleInstanceKey !== 'string' || n.scheduleInstanceKey < cutoff) {
         delete notices[id];
         changed = true;
       }
@@ -218,14 +231,15 @@ async function evaluate(
   // Every active schedule must allow. Stop on the first block or error. Each
   // schedule appends one decision so the log records bypasses and cache hits,
   // not just the final verdict.
-  for (const { schedule, windowEndTs } of active) {
+  for (const { schedule } of active) {
+    const instanceKey = scheduleInstanceKey(schedule, now);
     if (!pendingIds.has(schedule.id)) {
       decisions.push({
         verdict: 'allow',
         source: VerdictSource.Bypass,
         scheduleName: schedule.name,
         scheduleId: schedule.id,
-        windowEndTs,
+        scheduleInstanceKey: instanceKey,
       });
       continue;
     }
@@ -240,7 +254,7 @@ async function evaluate(
       const judgement = judgementFromCache(
         hit.entry,
         schedule,
-        windowEndTs,
+        instanceKey,
         strictness,
         hit.viaFallback,
       );
@@ -266,7 +280,7 @@ async function evaluate(
           error: 'Could not read video metadata.',
           scheduleName: schedule.name,
           scheduleId: schedule.id,
-          windowEndTs,
+          scheduleInstanceKey: instanceKey,
         });
         return { decisions, metadata: metadata ?? cacheMeta };
       }
@@ -287,11 +301,11 @@ async function evaluate(
         decisions.push({
           ...decision.judgement,
           error: `There was an error calling ${detail}. Full details have been logged in the extension's service worker console (chrome://extensions → Screener → service worker).`,
-          windowEndTs,
+          scheduleInstanceKey: instanceKey,
         });
         return { decisions, metadata };
       }
-      decisions.push({ ...decision.judgement, windowEndTs });
+      decisions.push({ ...decision.judgement, scheduleInstanceKey: instanceKey });
       if (decision.judgement.verdict === 'block') {
         return { decisions, metadata };
       }
@@ -304,7 +318,7 @@ async function evaluate(
       ...decision.judgement,
       nouls: decision.nouls,
       primaryError: decision.primaryError,
-      windowEndTs,
+      scheduleInstanceKey: instanceKey,
     });
     if (decision.judgement.verdict === 'block') {
       return { decisions, metadata };
@@ -430,8 +444,8 @@ async function collectFallbackWarning(
   const names = new Set<string>();
   for (const d of used) {
     console.warn('Screener: primary provider failed, used backup', d.primaryError);
-    if (!d.scheduleId || d.windowEndTs === undefined) continue;
-    if (await shouldShowFallbackToast(d.scheduleId, d.windowEndTs)) {
+    if (!d.scheduleId || !d.scheduleInstanceKey) continue;
+    if (await shouldShowFallbackToast(d.scheduleId, d.scheduleInstanceKey)) {
       names.add(d.scheduleName ?? 'a schedule');
     }
   }

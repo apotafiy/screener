@@ -12,7 +12,7 @@ import { verdictFromNouls } from './ai/decisions';
 export function judgementFromCache(
   entry: CacheEntry,
   schedule: Schedule,
-  windowEndTs: number,
+  scheduleInstanceKey: string,
   strictness: Strictness,
   viaFallback: boolean,
 ): Judgement {
@@ -22,7 +22,7 @@ export function judgementFromCache(
     scheduleName: schedule.name,
     scheduleId: schedule.id,
     ...(viaFallback ? { viaFallback: true } : {}),
-    windowEndTs,
+    scheduleInstanceKey,
     nouls: entry.nouls,
   };
 }

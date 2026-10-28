@@ -32,7 +32,7 @@ Internally the check is expressed as two calibrated yes/no (`noul`) questions �
 
 ### Backup Provider (optional)
 
-Enable the **backup provider** checkbox to specify a second AI service that is tried once when the primary provider fails. When both fail you see the error overlay (Retry/Continue); when only the primary fails and the backup succeeds, a small **toast** appears instead (once per schedule window). The backup uses its own API key, model, and timeout — consider a shorter timeout since it's a last-resort path.
+Enable the **backup provider** checkbox to specify a second AI service that is tried once when the primary provider fails. When both fail you see the error overlay (Retry/Continue); when only the primary fails and the backup succeeds, a small **toast** appears instead (once per schedule instance). The backup uses its own API key, model, and timeout — consider a shorter timeout since it's a last-resort path.
 
 To test without an API key: use the **Mock** preset. It blocks any video whose title contains "BLOCKME" (case-insensitive) and allows everything else.
 
@@ -86,7 +86,7 @@ Export downloads your settings as JSON (API key excluded by design). Import repl
 - [ ] Preview a decision: paste URL, verify verdict matches live evaluation
 - [ ] Export/Import round-trip preserves all settings
 - [ ] Host permission granted on first Save for a real provider (check `chrome://extensions` → Screener → Details)
-- [ ] Backup provider: primary fails, backup succeeds → toast appears (once per schedule window), video not blocked by error overlay
+- [ ] Backup provider: primary fails, backup succeeds → toast appears (once per schedule instance), video not blocked by error overlay
 - [ ] Backup provider: primary and backup fail → error overlay with Retry/Continue
 - [ ] Backup provider disabled → primary failure still shows error overlay (unchanged)
 

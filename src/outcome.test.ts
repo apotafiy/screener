@@ -87,13 +87,13 @@ describe('finalizeJudgement', () => {
     const outcome = finalizeJudgement([
       j({
         nouls: { matchesBlock: 0.9 },
-        windowEndTs: 123,
+        scheduleInstanceKey: '2026-10-28',
         scheduleId: 's1',
         primaryError: 'timeout',
       }),
     ]);
     expect(outcome).not.toHaveProperty('nouls');
-    expect(outcome).not.toHaveProperty('windowEndTs');
+    expect(outcome).not.toHaveProperty('scheduleInstanceKey');
     expect(outcome).not.toHaveProperty('scheduleId');
     expect(outcome).not.toHaveProperty('primaryError');
   });
@@ -108,28 +108,32 @@ describe('judgementFromCache', () => {
   };
 
   it('projects a cache hit into a decision', () => {
-    expect(judgementFromCache(entry, schedule, 123, Strictness.Medium, false)).toMatchObject({
+    expect(
+      judgementFromCache(entry, schedule, '2026-10-28', Strictness.Medium, false),
+    ).toMatchObject({
       verdict: 'block',
       source: VerdictSource.Cache,
       scheduleId: 's1',
       scheduleName: 'Test',
-      windowEndTs: 123,
+      scheduleInstanceKey: '2026-10-28',
       nouls: { matchesBlock: 0.9 },
     });
   });
 
   it('marks a fallback hit only when requested', () => {
-    expect(judgementFromCache(entry, schedule, 1, Strictness.Medium, false).viaFallback)
-      .toBeUndefined();
-    expect(judgementFromCache(entry, schedule, 1, Strictness.Medium, true).viaFallback)
-      .toBe(true);
+    expect(
+      judgementFromCache(entry, schedule, '2026-10-28', Strictness.Medium, false).viaFallback,
+    ).toBeUndefined();
+    expect(
+      judgementFromCache(entry, schedule, '2026-10-28', Strictness.Medium, true).viaFallback,
+    ).toBe(true);
   });
 
   it('allows when the probabilities pass', () => {
     const allow = judgementFromCache(
       { ...entry, nouls: { matchesBlock: 0.1 } },
       schedule,
-      1,
+      '2026-10-28',
       Strictness.Medium,
       false,
     );

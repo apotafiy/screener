@@ -212,7 +212,7 @@ import { MessageType } from '../types';
         el(
           'div',
           { class: 'so-confidence' },
-          'This result was a close call: the video only just missed your allow criteria, so Screener isn\'t confident it should be blocked. A temporary bypass is available.',
+          'This video almost met your criteria, so it\'s your choice whether to watch it anyway after a 5-minute wait.',
         ),
       );
     }

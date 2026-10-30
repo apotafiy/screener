@@ -27,7 +27,7 @@ import { matchList } from '../matcher';
 import { criteriaHash, cachePut, findCached } from '../cache';
 import { presetById } from '../defaults';
 import { judge } from '../ai/judge';
-import { verdictFromNouls } from '../ai/decisions';
+import { isCloseCallBlock, verdictFromNouls } from '../ai/decisions';
 import { fallbackDecisions, finalizeJudgement, judgementFromCache } from '../outcome';
 import { resolveVideoContext } from '../youtube';
 import { appendLogs } from '../log';
@@ -196,15 +196,21 @@ async function decide(
     };
   }
 
+  const strictness = settings.strictness ?? Strictness.Medium;
+  const verdict = verdictFromNouls(result.decision, strictness);
+  const judgement: Judgement = {
+    verdict,
+    source: VerdictSource.Ai,
+    viaFallback: result.usedFallback,
+    ...scheduleRef,
+    ...(verdict === 'block' && isCloseCallBlock(result.decision, strictness)
+      ? { lowConfidence: true }
+      : {}),
+  };
   return {
     nouls: result.decision,
     primaryError: result.primaryError,
-    judgement: {
-      verdict: verdictFromNouls(result.decision, settings.strictness ?? Strictness.Medium),
-      source: VerdictSource.Ai,
-      viaFallback: result.usedFallback,
-      ...scheduleRef,
-    },
+    judgement,
   };
 }
 
@@ -355,6 +361,7 @@ async function recordDecisions(
     source: d.source,
     error: d.error,
     viaFallback: d.viaFallback,
+    lowConfidence: d.lowConfidence,
     nouls: d.nouls,
   })));
 }
@@ -390,7 +397,7 @@ chrome.runtime.onMessage.addListener((message: AnyRequest, sender, sendResponse)
     return true;
   }
   if (message.type === MessageType.TempBypass) {
-    handleTempBypass(message.videoId)
+    handleTempBypass(message.videoId, message.closeCall === true)
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
     return true;
@@ -457,11 +464,11 @@ async function handleCheck(videoId: string, tabId: number): Promise<CheckRespons
   let decisions: Judgement[] = [];
   let meta: VideoMetadata | null = null;
   let primaryLabel: string | undefined;
-  let canBypass = false;
+  let tempBypassEnabled = false;
 
   try {
     const settings = await loadSettings();
-    canBypass = settings.allowTempBypass !== false;
+    tempBypassEnabled = settings.allowTempBypass !== false;
     primaryLabel = providerLabel(settings.provider);
     const result = await evaluate(videoId, tabId, settings);
     decisions = result.decisions;
@@ -485,6 +492,12 @@ async function handleCheck(videoId: string, tabId: number): Promise<CheckRespons
     }
   }
   const final = finalizeJudgement(decisions, warning);
+  // A close-call block keeps the bypass even when the global setting is off;
+  // otherwise the setting is authoritative. The content script sends this
+  // flag back with the bypass request.
+  const bypassOverride =
+    !tempBypassEnabled && final.verdict === 'block' && final.lowConfidence === true;
+  const canBypass = tempBypassEnabled || bypassOverride;
 
   // Bookkeeping must never prevent the response from being sent.
   try {
@@ -497,6 +510,7 @@ async function handleCheck(videoId: string, tabId: number): Promise<CheckRespons
     type: MessageType.CheckResult,
     videoId,
     canBypass,
+    ...(bypassOverride ? { bypassOverride: true } : {}),
     ...final,
   };
 }
@@ -554,10 +568,10 @@ async function handleTestCriteria(
   };
 }
 
-async function handleTempBypass(videoId: string): Promise<void> {
+async function handleTempBypass(videoId: string, closeCall: boolean): Promise<void> {
   await withLock(async () => {
     const settings = await loadSettings();
-    if (settings.allowTempBypass === false) return;
+    if (settings.allowTempBypass === false && !closeCall) return;
     const now = Date.now();
     const active = findActiveSchedules(settings.schedules, now);
     if (active.length === 0) return;

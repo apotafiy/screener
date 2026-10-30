@@ -97,6 +97,13 @@ describe('finalizeJudgement', () => {
     expect(outcome).not.toHaveProperty('scheduleId');
     expect(outcome).not.toHaveProperty('primaryError');
   });
+
+  it('carries the close-call flag into the outcome', () => {
+    const outcome = finalizeJudgement([
+      j({ verdict: 'block', lowConfidence: true }),
+    ]);
+    expect(outcome.lowConfidence).toBe(true);
+  });
 });
 
 describe('judgementFromCache', () => {
@@ -127,6 +134,18 @@ describe('judgementFromCache', () => {
     expect(
       judgementFromCache(entry, schedule, '2026-10-28', Strictness.Medium, true).viaFallback,
     ).toBe(true);
+  });
+
+  it('flags a close-call cache block', () => {
+    const closeCall = judgementFromCache(
+      { ...entry, nouls: { matchesBlock: 0.2, matchesAllow: 0.7 } },
+      schedule,
+      '2026-10-28',
+      Strictness.High,
+      false,
+    );
+    expect(closeCall.verdict).toBe('block');
+    expect(closeCall.lowConfidence).toBe(true);
   });
 
   it('allows when the probabilities pass', () => {

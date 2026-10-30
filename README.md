@@ -52,7 +52,7 @@ Enable the schedule and **Save Schedules**. The toolbar icon shows a red **ON** 
 
 ### Blocked video flow
 
-If blocked, you see an overlay with the schedule name (and the matched keyword, for keyword blocks). Press **Watch anyway** to start a 5-minute countdown; when it completes you can watch that video until the schedule window ends. Leaving the page resets the wait. Once earned, the bypass survives reloads and browser restarts. This bypass can be turned off under **Blocking** in Options, in which case the overlay has no way to continue. The same **Blocking** section holds a global **Strictness** level (Low/Medium/High) that shifts how readily the AI blocks.
+If blocked, you see an overlay with the schedule name (and the matched keyword, for keyword blocks). Press **Watch anyway** to start a 5-minute countdown; when it completes you can watch that video until the schedule window ends. Leaving the page resets the wait. Once earned, the bypass survives reloads and browser restarts. This bypass can be turned off under **Blocking** in Options; confident blocks then have no way to continue. A block that only barely missed the allow criteria (within 0.1 of the threshold) still offers the bypass, because the result is uncertain. The same **Blocking** section holds a global **Strictness** level (Low/Medium/High) that shifts how readily the AI blocks.
 
 ### Preview a decision
 

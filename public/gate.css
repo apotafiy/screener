@@ -33,6 +33,14 @@
   max-width: 480px;
   line-height: 1.5;
 }
+#screener-overlay .so-confidence {
+  font-size: 13px;
+  color: #e0c060;
+  margin-bottom: 16px;
+  text-align: center;
+  max-width: 480px;
+  line-height: 1.5;
+}
 #screener-overlay .so-btn {
   padding: 10px 24px;
   border-radius: 8px;

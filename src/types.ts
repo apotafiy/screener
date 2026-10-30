@@ -107,6 +107,8 @@ export interface Judgement {
   primaryError?: string;
   /** Stable id of the schedule window this decision was made under. */
   scheduleInstanceKey?: string;
+  /** True when this block is only a close call against the allow criteria. */
+  lowConfidence?: boolean;
   nouls?: NoulDecision;
 }
 
@@ -122,6 +124,8 @@ export interface FinalJudgement {
   error?: string;
   warning?: string;
   viaFallback?: boolean;
+  /** True when the block is only a close call against the allow criteria. */
+  lowConfidence?: boolean;
 }
 
 export interface CacheEntry {
@@ -157,13 +161,20 @@ export interface LogEntry {
   source: VerdictSource;
   error?: string;
   viaFallback?: boolean;
+  /** True when the block was only a close call against the allow criteria. */
+  lowConfidence?: boolean;
   nouls?: NoulDecision;
 }
 
 export type CheckRequest = { type: MessageType.Check; videoId: string };
 export type MetadataRequest = { type: MessageType.ScrapeMetadata };
 export type DescriptionRequest = { type: MessageType.ScrapeDescription };
-export type TempBypassRequest = { type: MessageType.TempBypass; videoId: string };
+export type TempBypassRequest = {
+  type: MessageType.TempBypass;
+  videoId: string;
+  /** True when the overlay offered the bypass for a close-call block. */
+  closeCall?: boolean;
+};
 export type PingRequest = { type: MessageType.Ping };
 export type ExtensionStatusRequest = { type: MessageType.ExtensionStatus };
 export type TestCriteriaRequest = {
@@ -190,6 +201,8 @@ export interface CheckResponse extends FinalJudgement {
   videoId: string;
   /** Whether the block overlay should offer the "Watch anyway" bypass. */
   canBypass?: boolean;
+  /** True when the bypass is offered despite the global setting, for a close call. */
+  bypassOverride?: boolean;
 }
 
 export interface ActiveScheduleStatus {

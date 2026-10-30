@@ -6,7 +6,7 @@ import type {
   Strictness,
 } from './types';
 import { VerdictSource } from './types';
-import { verdictFromNouls } from './ai/decisions';
+import { isCloseCallBlock, verdictFromNouls } from './ai/decisions';
 
 /** Projects a cache hit into a per-schedule decision. */
 export function judgementFromCache(
@@ -16,13 +16,17 @@ export function judgementFromCache(
   strictness: Strictness,
   viaFallback: boolean,
 ): Judgement {
+  const verdict = verdictFromNouls(entry.nouls, strictness);
   return {
-    verdict: verdictFromNouls(entry.nouls, strictness),
+    verdict,
     source: VerdictSource.Cache,
     scheduleName: schedule.name,
     scheduleId: schedule.id,
     ...(viaFallback ? { viaFallback: true } : {}),
     scheduleInstanceKey,
+    ...(verdict === 'block' && isCloseCallBlock(entry.nouls, strictness)
+      ? { lowConfidence: true }
+      : {}),
     nouls: entry.nouls,
   };
 }
@@ -44,6 +48,7 @@ export function finalizeJudgement(
     error: chosen.error,
     warning,
     viaFallback: chosen.viaFallback,
+    ...(chosen.lowConfidence ? { lowConfidence: true } : {}),
   };
 }
 

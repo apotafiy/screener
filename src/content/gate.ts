@@ -176,6 +176,7 @@ import { MessageType } from '../types';
   }
 
   function showChecking(): void {
+    stopCountdown();
     const r = getOverlay();
     r.className = '';
     empty(r);
@@ -186,7 +187,13 @@ import { MessageType } from '../types';
     );
   }
 
-  function showBlocked(reason: string | undefined, scheduleName: string, canBypass?: boolean): void {
+  function showBlocked(
+    reason: string | undefined,
+    scheduleName: string,
+    canBypass?: boolean,
+    bypassOverride?: boolean,
+  ): void {
+    stopCountdown();
     const r = getOverlay();
     r.className = '';
     empty(r);
@@ -200,17 +207,27 @@ import { MessageType } from '../types';
         reasonText,
       ].flat()),
     );
+    if (bypassOverride) {
+      r.append(
+        el(
+          'div',
+          { class: 'so-confidence' },
+          'This result was a close call: the video only just missed your allow criteria, so Screener isn\'t confident it should be blocked. A temporary bypass is available.',
+        ),
+      );
+    }
     if (canBypass) {
       r.append(
         el('button', { class: 'so-btn secondary', id: 'so-watch-anyway' }, 'Watch anyway'),
         el('div', { class: 'so-countdown-note' }, 'The 5-minute wait starts after you press the button. Leaving this page will reset it.'),
       );
       const btn = $('#so-watch-anyway', r) as HTMLButtonElement | null;
-      if (btn) btn.addEventListener('click', () => { setupCountdown(); });
+      if (btn) btn.addEventListener('click', () => { setupCountdown(bypassOverride === true); });
     }
   }
 
   function showError(message: string, providerInfo: string): void {
+    stopCountdown();
     const r = getOverlay();
     r.className = '';
     empty(r);
@@ -281,9 +298,10 @@ import { MessageType } from '../types';
     btn.textContent = `Watch anyway (${m}:${String(s).padStart(2, '0')})`;
   }
 
-  function setupCountdown(): void {
+  function setupCountdown(closeCall: boolean): void {
     if (countdownInterval) return; // already counting
     countdownSeconds = 5 * 60;
+    const bypassVideoId = getVideoId();
     updateCountdownLabel();
     const btn = $('#so-watch-anyway') as HTMLButtonElement | null;
     if (btn) btn.disabled = true;
@@ -292,11 +310,17 @@ import { MessageType } from '../types';
       updateCountdownLabel();
       if (countdownSeconds <= 0) {
         stopCountdown();
-        const videoId = getVideoId();
-        if (videoId) {
-          chrome.runtime.sendMessage<TempBypassRequest, TempBypassResponse>({ type: MessageType.TempBypass, videoId })
-            .catch(() => { /* SW unavailable, bypass local only */ });
+        // Do not grant or resume if the page changed while waiting.
+        if (!bypassVideoId || getVideoId() !== bypassVideoId) {
+          removeOverlay();
+          return;
         }
+        chrome.runtime.sendMessage<TempBypassRequest, TempBypassResponse>({
+          type: MessageType.TempBypass,
+          videoId: bypassVideoId,
+          closeCall,
+        })
+          .catch(() => { /* SW unavailable, bypass local only */ });
         destroyOverlay();
       }
     }, 1000);
@@ -362,7 +386,7 @@ import { MessageType } from '../types';
       } else {
         if (res.warning) showToast(res.warning);
         suppressPlayback();
-        showBlocked(res.reason, res.scheduleName ?? 'Unknown', res.canBypass);
+        showBlocked(res.reason, res.scheduleName ?? 'Unknown', res.canBypass, res.bypassOverride);
       }
     } catch (_e) {
       settled = true;
@@ -475,9 +499,10 @@ import { MessageType } from '../types';
   window.addEventListener('popstate', () => {
     const videoId = getVideoId();
     if (!videoId || videoId === currentCheckVideoId) return;
-    // Invalidate the outgoing video's in-flight check so a late allow cannot
-    // unmute and play it over the destination.
+    // Invalidate the outgoing overlay's countdown before the destination
+    // settles, so a completion cannot grant a bypass to the new video.
     currentCheckVideoId = null;
+    removeOverlay();
     suppressPlayback();
   });
 

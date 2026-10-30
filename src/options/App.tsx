@@ -272,8 +272,10 @@ export function App() {
           <Help id="temp-bypass">
             When on, a blocked video shows a &quot;Watch anyway&quot; button that
             starts a 5-minute countdown; once it finishes, the video can be
-            watched for the rest of the schedule window. Turn off to block with
-            no bypass — the overlay then has no way to continue.
+            watched for the rest of the schedule window. Turn off to block
+            confident results with no bypass. A block that only barely missed
+            the allow criteria (within 0.1 of the threshold) still offers the
+            5-minute bypass, because the result is uncertain.
           </Help>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' }}>

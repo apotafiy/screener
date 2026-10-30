@@ -35,3 +35,23 @@ export function verdictFromNouls(n: NoulDecision, strictness: Strictness): Verdi
   if (n.matchesAllow !== undefined && n.matchesAllow <= allow) return 'block';
   return 'allow';
 }
+
+/** How far below the allow cutoff still counts as a close call. */
+export const CLOSE_CALL_ALLOW_MARGIN = 0.1;
+
+/**
+ * True when the block is driven only by a barely-failed allow rule: block
+ * criteria were not met, the allow rule fired, and P(allow) is within the
+ * margin below the allow cutoff. A positive block match always wins, so it is
+ * never a close call.
+ */
+export function isCloseCallBlock(n: NoulDecision, strictness: Strictness): boolean {
+  const { block, allow } = THRESHOLDS[strictness];
+  if (n.matchesBlock !== undefined && n.matchesBlock >= block) return false;
+  if (n.matchesAllow === undefined || n.matchesAllow > allow) return false;
+  // Compare thousandths so 0.8 - 0.7 still qualifies despite float drift.
+  return (
+    Math.round((allow - n.matchesAllow) * 1000) <=
+    Math.round(CLOSE_CALL_ALLOW_MARGIN * 1000)
+  );
+}

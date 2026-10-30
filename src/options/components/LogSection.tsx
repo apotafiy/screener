@@ -86,6 +86,9 @@ export function LogSection() {
                       {e.viaFallback ? '*' : ''}
                     </td>
                     <td>
+                      {e.lowConfidence ? (
+                        <span className="log-close-call">close call · </span>
+                      ) : null}
                       {e.reason ?? (e.nouls ? noulSummary(e.nouls) : e.error ?? '')}
                     </td>
                   </tr>

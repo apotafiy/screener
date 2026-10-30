@@ -339,6 +339,7 @@ async function recordDecisions(
   final: FinalJudgement,
   decisions: Judgement[],
   meta: VideoMetadata | null,
+  strictness?: Strictness,
 ): Promise<void> {
   if (final.source === VerdictSource.Dormant) return; // off-schedule: not logged
 
@@ -361,6 +362,7 @@ async function recordDecisions(
     source: d.source,
     error: d.error,
     viaFallback: d.viaFallback,
+    strictness,
     lowConfidence: d.lowConfidence,
     nouls: d.nouls,
   })));
@@ -465,10 +467,12 @@ async function handleCheck(videoId: string, tabId: number): Promise<CheckRespons
   let meta: VideoMetadata | null = null;
   let primaryLabel: string | undefined;
   let tempBypassEnabled = false;
+  let strictness: Strictness | undefined;
 
   try {
     const settings = await loadSettings();
     tempBypassEnabled = settings.allowTempBypass !== false;
+    strictness = settings.strictness ?? Strictness.Medium;
     primaryLabel = providerLabel(settings.provider);
     const result = await evaluate(videoId, tabId, settings);
     decisions = result.decisions;
@@ -501,7 +505,7 @@ async function handleCheck(videoId: string, tabId: number): Promise<CheckRespons
 
   // Bookkeeping must never prevent the response from being sent.
   try {
-    await recordDecisions(videoId, final, decisions, meta);
+    await recordDecisions(videoId, final, decisions, meta, strictness);
   } catch (e) {
     console.warn('Screener: failed to record decision', e);
   }

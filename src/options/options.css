@@ -195,20 +195,32 @@ button.small { padding: 4px 10px; font-size: 12px; }
   #test-result.error { background: #2a1f10; color: #ffb74d; }
 }
 
-#log-table { max-height: 400px; overflow-y: auto; margin-top: 10px; }
-#log-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
-#log-table th, #log-table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border-soft); }
-#log-table td:first-child { white-space: nowrap; }
-#log-table th { position: sticky; top: 0; background: var(--panel); font-weight: 600; }
+#log-table { max-height: 400px; overflow: auto; margin-top: 10px; }
+#log-table table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
+#log-table th, #log-table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+#log-table th { position: sticky; top: 0; background: var(--panel); font-weight: 600; font-size: 11px; }
+#log-table .log-time { width: 19%; font-variant-numeric: tabular-nums; }
+#log-table .log-title { width: 16%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#log-table .log-schedule { width: 11%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#log-table .log-strictness { width: 10%; white-space: nowrap; }
+#log-table .log-verdict { width: 8%; white-space: nowrap; }
+#log-table .log-source { width: 9%; white-space: nowrap; }
+#log-table .log-details { width: 27%; overflow-wrap: anywhere; }
 .log-allow { color: #2e7d32; }
 .log-block { color: #c62828; }
-.log-empty { color: #8e24aa; }
-.log-close-call { color: #b26a00; }
+.log-close-call {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #fff3e0;
+  color: #b26a00;
+  font-size: 11px;
+  line-height: 1.5;
+}
 @media (prefers-color-scheme: dark) {
   .log-allow { color: #81c784; }
   .log-block { color: #ff6b6b; }
-  .log-empty { color: #ce93d8; }
-  .log-close-call { color: #ffb74d; }
+  .log-close-call { background: #2a1f10; color: #ffb74d; }
 }
 
 #toast {

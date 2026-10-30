@@ -62,7 +62,7 @@ The result shows verdict, source, and latency — plus the calibrated probabilit
 
 ### Decision log
 
-Every schedule's decision is recorded (last 1000 entries) with timestamp, video id, title, schedule name, verdict, source (`keyword`/`ai`/`cache`/`error`/`empty`/`bypass`/`dormant`), and details — the matched keyword, the error text, or the calibrated probabilities (`P(matches block) … · P(matches allow) …`) for AI and cache verdicts. A stacked check writes one row per schedule, including cache hits and bypassed schedules, while the stats grid still counts each video once. Clear it from Options.
+Every schedule's decision is recorded (last 1000 entries) with timestamp, video id, title, schedule name, strictness level, verdict, source (`keyword`/`ai`/`cache`/`error`/`empty`/`bypass`/`dormant`), and details — the matched keyword, the error text, or the calibrated match percentages (for example, `80% match on block criteria. 24% match on allow criteria.`) for AI and cache verdicts. Close-call blocks are tagged. A stacked check writes one row per schedule, including cache hits and bypassed schedules, while the stats grid still counts each video once. Clear it from Options.
 
 ### Import / Export
 

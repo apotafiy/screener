@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { LogEntry, NoulDecision } from '../../types';
+import type { LogEntry, NoulDecision, Strictness } from '../../types';
 import { loadLog, clearLog } from '../../log';
 
 /** Local time from year to seconds; the tooltip keeps the locale form. */
@@ -12,11 +12,46 @@ function formatTime(ts: number): string {
   );
 }
 
+/** Readable percentages; exact decimals stay in the tooltip. */
 function noulSummary(n: NoulDecision): string {
   const parts: string[] = [];
-  if (n.matchesBlock !== undefined) parts.push(`P(matches block) ${n.matchesBlock.toFixed(2)}`);
-  if (n.matchesAllow !== undefined) parts.push(`P(matches allow) ${n.matchesAllow.toFixed(2)}`);
+  if (n.matchesBlock !== undefined) {
+    parts.push(`${Math.round(n.matchesBlock * 100)}% match on block criteria.`);
+  }
+  if (n.matchesAllow !== undefined) {
+    parts.push(`${Math.round(n.matchesAllow * 100)}% match on allow criteria.`);
+  }
+  return parts.join(' ') || '—';
+}
+
+/** Exact probabilities for the details tooltip. */
+function noulExact(n: NoulDecision): string {
+  const parts: string[] = [];
+  if (n.matchesBlock !== undefined) {
+    parts.push(`P(matches block) ${n.matchesBlock.toFixed(2)}`);
+  }
+  if (n.matchesAllow !== undefined) {
+    parts.push(`P(matches allow) ${n.matchesAllow.toFixed(2)}`);
+  }
   return parts.join(' · ');
+}
+
+function strictnessLabel(s?: Strictness): string {
+  if (!s) return '—';
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function detailsText(e: LogEntry): string {
+  if (e.reason) return e.reason;
+  if (e.nouls) return noulSummary(e.nouls);
+  if (e.error) return e.error;
+  return '—';
+}
+
+function detailsTitle(e: LogEntry): string | undefined {
+  if (e.error) return e.error;
+  if (e.nouls) return noulExact(e.nouls);
+  return undefined;
 }
 
 export function LogSection() {
@@ -52,12 +87,15 @@ export function LogSection() {
           <table>
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Title</th>
-                <th>Schedule</th>
-                <th>Verdict</th>
-                <th>Source</th>
-                <th>Details</th>
+                <th className="log-time">Time</th>
+                <th className="log-title">Title</th>
+                <th className="log-schedule">Schedule</th>
+                <th className="log-strictness" title="Strictness level in effect for this check">
+                  Strictness
+                </th>
+                <th className="log-verdict">Verdict</th>
+                <th className="log-source">Source</th>
+                <th className="log-details">Details</th>
               </tr>
             </thead>
             <tbody>
@@ -66,30 +104,50 @@ export function LogSection() {
                 .reverse()
                 .map((e, i) => (
                   <tr key={`${e.timestamp}-${e.scheduleId ?? e.source}-${i}`}>
-                    <td title={new Date(e.timestamp).toLocaleString()}>
+                    <td
+                      className="log-time"
+                      title={new Date(e.timestamp).toLocaleString()}
+                    >
                       {formatTime(e.timestamp)}
                     </td>
-                    <td>{e.title.slice(0, 60)}</td>
-                    <td>{e.scheduleName ?? '—'}</td>
+                    <td className="log-title" title={e.title}>
+                      {e.title.slice(0, 60)}
+                    </td>
+                    <td className="log-schedule" title={e.scheduleName ?? undefined}>
+                      {e.scheduleName ?? '—'}
+                    </td>
+                    <td className="log-strictness">
+                      {strictnessLabel(e.strictness)}
+                    </td>
                     <td
-                      className={`log-${e.verdict === 'block'
-                          ? 'block'
-                          : e.verdict === 'allow'
-                            ? 'allow'
-                            : 'empty'
-                        }`}
+                      className={`log-verdict ${
+                        e.verdict === 'block' ? 'log-block' : 'log-allow'
+                      }`}
                     >
                       {e.verdict}
                     </td>
-                    <td>
+                    <td
+                      className="log-source"
+                      title={e.viaFallback ? 'Backup provider used' : undefined}
+                    >
                       {e.source}
                       {e.viaFallback ? '*' : ''}
                     </td>
-                    <td>
+                    <td
+                      className="log-details"
+                      title={detailsTitle(e)}
+                    >
                       {e.lowConfidence ? (
-                        <span className="log-close-call">close call · </span>
+                        <div>
+                          <span
+                            className="log-close-call"
+                            title="Block was a close call against the allow criteria"
+                          >
+                            close call
+                          </span>
+                        </div>
                       ) : null}
-                      {e.reason ?? (e.nouls ? noulSummary(e.nouls) : e.error ?? '')}
+                      <div>{detailsText(e)}</div>
                     </td>
                   </tr>
                 ))}

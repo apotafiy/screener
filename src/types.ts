@@ -161,6 +161,8 @@ export interface LogEntry {
   source: VerdictSource;
   error?: string;
   viaFallback?: boolean;
+  /** Strictness setting in effect when this decision was made. */
+  strictness?: Strictness;
   /** True when the block was only a close call against the allow criteria. */
   lowConfidence?: boolean;
   nouls?: NoulDecision;

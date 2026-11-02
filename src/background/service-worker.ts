@@ -29,7 +29,7 @@ import { presetById } from '../defaults';
 import { judge } from '../ai/judge';
 import { isCloseCallBlock, verdictFromNouls } from '../ai/decisions';
 import { fallbackDecisions, finalizeJudgement, judgementFromCache } from '../outcome';
-import { resolveVideoContext } from '../youtube';
+import { resolveVideoContext, DESCRIPTION_MAX_CHARS } from '../youtube';
 import { appendLogs } from '../log';
 import { recordStats, loadStats, type StatField } from '../stats';
 import { addTempAllows, loadTempAllows, saveTempAllows, pruneTempAllows } from '../temp-allows';
@@ -110,7 +110,7 @@ async function scrapeDescription(tabId: number): Promise<string | undefined> {
   try {
     const res = await chrome.tabs.sendMessage<DescriptionRequest, DescriptionScrapeResponse>(tabId, { type: MessageType.ScrapeDescription });
     if (res && typeof res.description === 'string' && res.description.trim() !== '') {
-      return res.description.trim().slice(0, 1000);
+      return res.description.trim().slice(0, DESCRIPTION_MAX_CHARS);
     }
   } catch {
     // ignore

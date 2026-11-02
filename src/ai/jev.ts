@@ -14,6 +14,9 @@ interface DecideResponse {
   answers?: Record<string, NoulAnswer>;
 }
 
+/** Maximum tag characters sent to the decision model. */
+export const TAGS_MAX_CHARS = 10000;
+
 /**
  * Builds the Jev `state`: only the video context the decision needs. The
  * criteria live in the question instructions so each question is
@@ -25,7 +28,7 @@ export function buildState(meta: VideoMetadata): Record<string, string> {
     state.description = meta.description.trim();
   }
   if (meta.tags && meta.tags.length > 0) {
-    state.tags = meta.tags.slice(0, 100).join(', ');
+    state.tags = meta.tags.join(', ').slice(0, TAGS_MAX_CHARS);
   }
   if (meta.category && meta.category.trim() !== '') {
     state.category = meta.category.trim();

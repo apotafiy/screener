@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import type { ProviderConfig, Schedule, VideoMetadata } from '../types';
-import { jev, buildState, buildQuestions, toDecision } from './jev';
+import { jev, buildState, buildQuestions, toDecision, TAGS_MAX_CHARS } from './jev';
 import type { NoulAnswer } from './jev';
 
 const cfg: ProviderConfig = {
@@ -68,10 +68,11 @@ describe('buildState', () => {
     expect(s).not.toHaveProperty('category');
   });
 
-  it('caps tags at 100', () => {
-    const tags = Array.from({ length: 150 }, (_, i) => `tag${i}`);
+  it('caps tags by characters', () => {
+    const tags = Array.from({ length: 500 }, (_, i) => `tag-${i}-${'x'.repeat(20)}`);
     const s = buildState({ ...meta, tags });
-    expect(s.tags).toBe(tags.slice(0, 100).join(', '));
+    expect(s.tags).toBe(tags.join(', ').slice(0, TAGS_MAX_CHARS));
+    expect(s.tags).toHaveLength(TAGS_MAX_CHARS);
   });
 });
 

@@ -1,5 +1,8 @@
 import type { VideoMetadata } from './types';
 
+/** Maximum description characters sent to the decision model. */
+export const DESCRIPTION_MAX_CHARS = 10000;
+
 export function parseVideoId(url: string): string | null {
   if (url.length === 11 && /^[A-Za-z0-9_-]{11}$/.test(url)) return url;
   try {
@@ -194,6 +197,6 @@ export async function resolveVideoContext(videoId: string): Promise<VideoMetadat
   const meta: VideoMetadata = { title, channel };
   if (watch?.tags?.length) meta.tags = watch.tags;
   if (watch?.category) meta.category = watch.category;
-  if (watch?.description) meta.description = watch.description.slice(0, 1000);
+  if (watch?.description) meta.description = watch.description.slice(0, DESCRIPTION_MAX_CHARS);
   return meta;
 }

@@ -4,6 +4,12 @@
 import type { CheckRequest, CheckResponse, TempBypassRequest, TempBypassResponse, MetadataRequest, DescriptionRequest } from '../types';
 import { MessageType } from '../types';
 
+enum OverlayKind {
+  Checking = 'checking',
+  Blocked = 'blocked',
+  Error = 'error',
+}
+
 (() => {
   // ---------------------------------------------------------------------------
   // DOM helpers
@@ -168,14 +174,49 @@ import { MessageType } from '../types';
   // ---------------------------------------------------------------------------
   let root: HTMLElement | null = null;
 
+  let overlayKind: OverlayKind | null = null;
+
+  const NON_HOST_TAGS = new Set(['VIDEO', 'AUDIO', 'IFRAME', 'OBJECT', 'EMBED']);
+
+  /** A fullscreen video/iframe/shadow host cannot render a child overlay. */
+  function canHostOverlay(el: Element | null): el is HTMLElement {
+    return (
+      el instanceof HTMLElement &&
+      !NON_HOST_TAGS.has(el.tagName) &&
+      !el.shadowRoot
+    );
+  }
+
+  function overlayHost(): HTMLElement {
+    const fs = document.fullscreenElement;
+    return canHostOverlay(fs) ? fs : document.documentElement;
+  }
+
+  /** False only when fullscreen is on a video/iframe/shadow host that can't hold a child. */
+  function canShowOverlayNow(): boolean {
+    return !document.fullscreenElement || canHostOverlay(document.fullscreenElement);
+  }
+
+  /** Keeps a layer in the current top-layer host, or back on the page. */
+  function mountLayer(node: HTMLElement): void {
+    const host = overlayHost();
+    if (node.parentNode !== host) host.append(node);
+  }
+
   function getOverlay(): HTMLElement {
-    if (root) return root;
-    root = el('div', { id: 'screener-overlay' });
-    document.documentElement.prepend(root);
+    if (!root) {
+      root = el('div', { id: 'screener-overlay' });
+      // When hosted inside the player, keep overlay interaction from toggling it.
+      root.addEventListener('click', (e) => e.stopPropagation());
+      root.addEventListener('pointerdown', (e) => e.stopPropagation());
+      root.addEventListener('keydown', (e) => e.stopPropagation());
+    }
+    mountLayer(root);
     return root;
   }
 
   function showChecking(): void {
+    overlayKind = OverlayKind.Checking;
     stopCountdown();
     const r = getOverlay();
     r.className = '';
@@ -193,6 +234,7 @@ import { MessageType } from '../types';
     canBypass?: boolean,
     bypassOverride?: boolean,
   ): void {
+    overlayKind = OverlayKind.Blocked;
     stopCountdown();
     const r = getOverlay();
     r.className = '';
@@ -227,6 +269,7 @@ import { MessageType } from '../types';
   }
 
   function showError(message: string, providerInfo: string): void {
+    overlayKind = OverlayKind.Error;
     stopCountdown();
     const r = getOverlay();
     r.className = '';
@@ -255,6 +298,7 @@ import { MessageType } from '../types';
   /** Removes the overlay and stops the countdown without touching playback. */
   function removeOverlay(): void {
     stopCountdown();
+    overlayKind = null;
     if (root) { root.remove(); root = null; }
   }
 
@@ -270,10 +314,13 @@ import { MessageType } from '../types';
     let toast = document.getElementById('screener-toast');
     if (!toast) {
       toast = el('div', { id: 'screener-toast' }, message);
-      document.documentElement.prepend(toast);
+      // A toast inside the player must not toggle playback when clicked.
+      toast.addEventListener('click', (e) => e.stopPropagation());
+      toast.addEventListener('pointerdown', (e) => e.stopPropagation());
     } else {
       toast.textContent = message;
     }
+    mountLayer(toast);
     toast.className = '';
     void toast.offsetWidth;
     toast.className = 'visible';
@@ -335,6 +382,24 @@ import { MessageType } from '../types';
   // ---------------------------------------------------------------------------
   let currentCheckVideoId: string | null = null;
 
+  /**
+   * Blocks and errors are shown outside fullscreen. Returns false when the
+   * video changed before/while exiting, so the caller can leave the new page
+   * alone. If the browser refuses to exit and the fullscreen host cannot hold
+   * a child overlay, there is no DOM overlay to show.
+   */
+  async function leaveFullscreenForOverlay(videoId: string): Promise<boolean> {
+    if (!document.fullscreenElement) return true;
+    if (getVideoId() !== videoId) return false;
+    try {
+      await document.exitFullscreen();
+    } catch {
+      // One retry covers a temporarily inactive document.
+      try { await document.exitFullscreen(); } catch { /* keep fullscreen */ }
+    }
+    return getVideoId() === videoId;
+  }
+
   async function doCheck(): Promise<void> {
     const videoId = getVideoId();
     if (!videoId) return;
@@ -356,17 +421,11 @@ import { MessageType } from '../types';
     // show the checking overlay.  Fast paths (dormant / bypass / cache hit)
     // resolve in well under this window and never interrupt playback.
     const graceTimer = setTimeout(() => {
-      void (async () => {
-        if (settled || currentCheckVideoId !== videoId) return;
-        // Exit fullscreen so the overlay is visible (fullscreen renders in the
-        // browser top layer, above any z-index in normal document flow).
-        if (document.fullscreenElement) {
-          try { await document.exitFullscreen(); } catch { /* ignore */ }
-        }
-        if (settled || currentCheckVideoId !== videoId) return;
-        suppressPlayback();
-        showChecking();
-      })();
+      if (settled || currentCheckVideoId !== videoId) return;
+      suppressPlayback();
+      // If fullscreen can't host a child overlay, skip the checking overlay
+      // rather than exiting fullscreen for a video that may be allowed.
+      if (canShowOverlayNow()) showChecking();
     }, 30);
 
     try {
@@ -376,16 +435,22 @@ import { MessageType } from '../types';
       if (currentCheckVideoId !== videoId) return;
       if (res.type !== MessageType.CheckResult) return;
 
-      if (res.error) {
-        if (res.warning) showToast(res.warning);
-        suppressPlayback();
-        showError(res.error, `${res.scheduleName ?? 'unknown'} / ${res.source}`);
-      } else if (res.verdict === 'allow') {
+      // Clean allow: no overlay, no fullscreen exit.
+      if (!res.error && res.verdict === 'allow') {
         if (res.warning) showToast(res.warning);
         destroyOverlay();
+        return;
+      }
+
+      // Terminal result: error or block.
+      suppressPlayback();
+      const stillCurrent = await leaveFullscreenForOverlay(videoId);
+      if (!stillCurrent || currentCheckVideoId !== videoId) return;
+      if (res.warning) showToast(res.warning);
+
+      if (res.error) {
+        showError(res.error, `${res.scheduleName ?? 'unknown'} / ${res.source}`);
       } else {
-        if (res.warning) showToast(res.warning);
-        suppressPlayback();
         showBlocked(res.reason, res.scheduleName ?? 'Unknown', res.canBypass, res.bypassOverride);
       }
     } catch (_e) {
@@ -506,12 +571,21 @@ import { MessageType } from '../types';
     suppressPlayback();
   });
 
-  // If something enters fullscreen while the overlay is showing, re-parent
-  // the overlay into that element so it stays visible inside the top layer.
+  // Keep the overlay and toast in the current top-layer host. A block/error
+  // overlay cannot be hosted by a video/iframe fullscreen element, so leave
+  // fullscreen in that case; a checking overlay may stay hidden and let an
+  // allowed video keep fullscreen.
   document.addEventListener('fullscreenchange', () => {
-    if (!root) return;
-    const target = document.fullscreenElement ?? document.documentElement;
-    if (root.parentNode !== target) target.prepend(root);
+    const fs = document.fullscreenElement;
+    if (root) {
+      if (fs && !canHostOverlay(fs) && overlayKind !== OverlayKind.Checking) {
+        void document.exitFullscreen().catch(() => { });
+      } else {
+        mountLayer(root);
+      }
+    }
+    const toast = document.getElementById('screener-toast');
+    if (toast) mountLayer(toast);
   });
 
   // ---------------------------------------------------------------------------

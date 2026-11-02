@@ -14,6 +14,7 @@
   color: #f1f1f1;
   padding: 24px;
   box-sizing: border-box;
+  pointer-events: auto;
 }
 #screener-overlay .so-icon {
   font-size: 48px;
@@ -120,4 +121,14 @@
 }
 #screener-toast.visible {
   opacity: 1;
+}
+
+/* When mounted inside a fullscreen element, anchor to that element instead of
+   the viewport. The fullscreen element is the browser's top-layer container. */
+:fullscreen > #screener-overlay {
+  position: absolute;
+  inset: 0;
+}
+:fullscreen > #screener-toast {
+  position: absolute;
 }

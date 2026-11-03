@@ -11,8 +11,10 @@ import type {
   TestCriteriaResponse,
   MetadataRequest,
   DescriptionRequest,
+  PlayerMetadataRequest,
   MetadataScrapeResponse,
   DescriptionScrapeResponse,
+  PlayerMetadataResponse,
   NoulDecision,
 } from '../types';
 import { MessageType, Strictness, VerdictSource } from '../types';
@@ -29,7 +31,7 @@ import { presetById } from '../defaults';
 import { judge } from '../ai/judge';
 import { isCloseCallBlock, verdictFromNouls } from '../ai/decisions';
 import { fallbackDecisions, finalizeJudgement, judgementFromCache } from '../outcome';
-import { resolveVideoContext, DESCRIPTION_MAX_CHARS } from '../youtube';
+import { fetchMetadataFromWatchPage, DESCRIPTION_MAX_CHARS } from '../youtube';
 import { appendLogs } from '../log';
 import { recordStats, loadStats, type StatField } from '../stats';
 import { addTempAllows, loadTempAllows, saveTempAllows, pruneTempAllows } from '../temp-allows';
@@ -94,7 +96,7 @@ async function pruneFallbackNotices(now: number): Promise<void> {
 // metadata resolution
 // ---------------------------------------------------------------------------
 
-async function scrapeMetadata(tabId: number): Promise<VideoMetadata | null> {
+async function scrapeTitleChannelFromTab(tabId: number): Promise<VideoMetadata | null> {
   try {
     const res = await chrome.tabs.sendMessage<MetadataRequest, MetadataScrapeResponse>(tabId, { type: MessageType.ScrapeMetadata });
     if (res && typeof res.title === 'string' && typeof res.channel === 'string') {
@@ -106,7 +108,32 @@ async function scrapeMetadata(tabId: number): Promise<VideoMetadata | null> {
   }
 }
 
-async function scrapeDescription(tabId: number): Promise<string | undefined> {
+/**
+ * Asks the content script for Innertube player metadata. The service worker
+ * cannot make this POST itself: browsers add `Origin: chrome-extension://<id>`
+ * to cross-origin POSTs, and YouTube rejects that origin with 403. A content
+ * script fetch runs with the YouTube page origin, which the endpoint accepts.
+ * If no content script is available or it returns nothing, evaluate() falls
+ * back to the watch page, then to the DOM.
+ */
+async function requestPlayerMetadataFromTab(
+  tabId: number,
+  videoId: string,
+): Promise<VideoMetadata | null> {
+  try {
+    const res = await chrome.tabs.sendMessage<PlayerMetadataRequest, PlayerMetadataResponse>(
+      tabId,
+      { type: MessageType.PlayerMetadata, videoId },
+    );
+    const metadata = res?.metadata;
+    if (metadata && (metadata.title || metadata.channel)) return metadata;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function scrapeDescriptionFromTab(tabId: number): Promise<string | undefined> {
   try {
     const res = await chrome.tabs.sendMessage<DescriptionRequest, DescriptionScrapeResponse>(tabId, { type: MessageType.ScrapeDescription });
     if (res && typeof res.description === 'string' && res.description.trim() !== '') {
@@ -274,12 +301,22 @@ async function evaluate(
 
     // Context shared by live checks and pasted-link tests: title, channel, tags,
     // category, and description. Fetched once and reused across schedules.
+    //
+    // Fallback order: page-origin player metadata (content script), watch-page
+    // JSON (service worker), then title/channel scraped from the open tab. All
+    // three produce VideoMetadata, so each can replace the previous result.
     if (!metadata) {
-      let loaded = await resolveVideoContext(videoId);
+      let loaded = await requestPlayerMetadataFromTab(tabId, videoId);
+      if (!loaded) {
+        console.warn(`Screener: player metadata unavailable for ${videoId}; using watch page`);
+        loaded = await fetchMetadataFromWatchPage(videoId);
+      }
       if (!loaded?.title && !loaded?.channel) {
-        loaded = await scrapeMetadata(tabId);
+        console.warn(`Screener: watch page metadata unavailable for ${videoId}; scraping the open tab`);
+        loaded = await scrapeTitleChannelFromTab(tabId);
       }
       if (!loaded) {
+        console.error(`Screener: could not read metadata for ${videoId}`);
         decisions.push({
           verdict: 'allow',
           source: VerdictSource.Error,
@@ -290,9 +327,13 @@ async function evaluate(
         });
         return { decisions, metadata: metadata ?? cacheMeta };
       }
-      // Description fallback from the open tab when the watch page had none.
+      // Description fallback from the open tab when the fetched metadata had none.
       if (!loaded.description) {
-        loaded.description = await scrapeDescription(tabId);
+        const description = await scrapeDescriptionFromTab(tabId);
+        if (description) {
+          console.info(`Screener: filled missing description for ${videoId} from the open tab`);
+          loaded.description = description;
+        }
       }
       metadata = loaded;
     }
@@ -547,7 +588,7 @@ async function handleTestCriteria(
   schedule: Schedule,
   videoId: string,
 ): Promise<TestCriteriaResponse> {
-  const meta = await resolveVideoContext(videoId);
+  const meta = await fetchMetadataFromWatchPage(videoId);
   if (!meta) {
     return {
       verdict: 'allow',

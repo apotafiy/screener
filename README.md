@@ -109,7 +109,7 @@ src/
   cache.ts        # 2000-entry LRU decision cache (storage.session, stores nouls)
   stats.ts        # Daily counters with lazy midnight rollover
   log.ts          # Decision log (last 1000 schedule decisions)
-  youtube.ts      # Video ID parsing, context resolver (watch page JSON, oEmbed)
+  youtube.ts      # Video ID parsing, context resolver (Innertube player, watch page JSON)
   mutex.ts        # In-worker serialization helper for storage ops
   ai/
     decisions.ts  # NoulDecision threshold + verdict derivation

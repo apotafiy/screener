@@ -1,8 +1,17 @@
 // Screener gate — content script injected at document_start on YouTube.
 //
 // NOTE: styles live in public/gate.css.
-import type { CheckRequest, CheckResponse, TempBypassRequest, TempBypassResponse, MetadataRequest, DescriptionRequest } from '../types';
+import type {
+  CheckRequest,
+  CheckResponse,
+  TempBypassRequest,
+  TempBypassResponse,
+  ContentRequest,
+  PlayerMetadataResponse,
+  VideoMetadata,
+} from '../types';
 import { MessageType } from '../types';
+import { fetchMetadataFromPlayer } from '../youtube';
 
 enum OverlayKind {
   Checking = 'checking',
@@ -417,7 +426,7 @@ enum OverlayKind {
     const sendPromise = chrome.runtime.sendMessage<CheckRequest, CheckResponse>({ type: MessageType.Check, videoId });
 
     // If the response takes longer than 30 ms the check is almost certainly
-    // network-bound (cache miss → oEmbed / AI call), so pause the video and
+    // network-bound (cache miss → metadata / AI call), so pause the video and
     // show the checking overlay.  Fast paths (dormant / bypass / cache hit)
     // resolve in well under this window and never interrupt playback.
     const graceTimer = setTimeout(() => {
@@ -510,7 +519,18 @@ enum OverlayKind {
     return '';
   }
 
-  chrome.runtime.onMessage.addListener((msg: MetadataRequest | DescriptionRequest, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((msg: ContentRequest, _sender, sendResponse) => {
+    if (msg.type === MessageType.PlayerMetadata) {
+      const respond = (metadata: VideoMetadata | null): void => {
+        const res: PlayerMetadataResponse = {
+          type: MessageType.PlayerMetadataResult,
+          metadata,
+        };
+        sendResponse(res);
+      };
+      void fetchMetadataFromPlayer(msg.videoId, location.origin).then(respond, () => respond(null));
+      return true;
+    }
     if (msg.type === MessageType.ScrapeMetadata) {
       const timeoutMs = 3000;
       // Await the page to settle; after document_start the title may still be default.

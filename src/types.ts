@@ -6,6 +6,7 @@ export enum MessageType {
   Check = 'CHECK',
   ScrapeMetadata = 'SCRAPE_METADATA',
   ScrapeDescription = 'SCRAPE_DESCRIPTION',
+  PlayerMetadata = 'PLAYER_METADATA',
   TempBypass = 'TEMP_BYPASS',
   Ping = 'PING',
   ExtensionStatus = 'EXTENSION_STATUS',
@@ -14,6 +15,7 @@ export enum MessageType {
   ExtensionStatusResult = 'EXTENSION_STATUS_RESULT',
   ScrapeResult = 'SCRAPE_RESULT',
   DescriptionResult = 'DESCRIPTION_RESULT',
+  PlayerMetadataResult = 'PLAYER_METADATA_RESULT',
 }
 
 export interface ProviderConfig {
@@ -171,6 +173,10 @@ export interface LogEntry {
 export type CheckRequest = { type: MessageType.Check; videoId: string };
 export type MetadataRequest = { type: MessageType.ScrapeMetadata };
 export type DescriptionRequest = { type: MessageType.ScrapeDescription };
+/** Service worker -> content script: fetch player metadata from the page origin. */
+export type PlayerMetadataRequest = { type: MessageType.PlayerMetadata; videoId: string };
+/** Messages sent from the service worker to a content script. */
+export type ContentRequest = MetadataRequest | DescriptionRequest | PlayerMetadataRequest;
 export type TempBypassRequest = {
   type: MessageType.TempBypass;
   videoId: string;
@@ -186,11 +192,7 @@ export type TestCriteriaRequest = {
 };
 
 /** Messages sent from the content script (require sender.tab.id). */
-export type TabRequest =
-  | CheckRequest
-  | MetadataRequest
-  | DescriptionRequest
-  | TempBypassRequest;
+export type TabRequest = CheckRequest | TempBypassRequest;
 
 /** Messages sent from extension pages (options/popup). */
 export type ExtensionRequest = ExtensionStatusRequest | TestCriteriaRequest;
@@ -225,6 +227,11 @@ export interface MetadataScrapeResponse {
   type: MessageType.ScrapeResult;
   title: string;
   channel: string;
+}
+
+export interface PlayerMetadataResponse {
+  type: MessageType.PlayerMetadataResult;
+  metadata: VideoMetadata | null;
 }
 
 export interface DescriptionScrapeResponse {

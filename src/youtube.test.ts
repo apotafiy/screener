@@ -1,5 +1,10 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { parseVideoId, parsePlayerResponse, resolveVideoContext } from './youtube';
+import {
+  parseVideoId,
+  parsePlayerResponse,
+  fetchMetadataFromPlayer,
+  fetchMetadataFromWatchPage,
+} from './youtube';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -21,6 +26,19 @@ function playerHtml(details: Record<string, unknown> = {}): string {
     ...details,
   };
   return `<html><script>var ytInitialPlayerResponse = ${JSON.stringify(player)};var meta = 1;</script></html>`;
+}
+
+function playerJson(details: Record<string, unknown> = {}): Response {
+  return json({
+    videoDetails: {
+      title: 'My Game Video',
+      author: 'SomeChannel',
+      keywords: ['Minecraft', 'Gameplay', 123, '  '],
+      shortDescription: 'Playing Minecraft today };var not the end',
+      ...details,
+    },
+    microformat: { playerMicroformatRenderer: { category: 'Gaming' } },
+  });
 }
 
 describe('parsePlayerResponse', () => {
@@ -69,37 +87,82 @@ describe('parsePlayerResponse', () => {
   });
 });
 
-describe('resolveVideoContext', () => {
-  it('uses the watch page and oEmbed as fallback', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      if (url.includes('/oembed')) return json({ title: 'Embed', author_name: 'EmbedChannel' });
-      if (url.includes('/watch')) return new Response(playerHtml(), { status: 200 });
-      throw new Error('unexpected ' + url);
-    }));
+describe('fetchMetadataFromPlayer', () => {
+  const origin = 'https://www.youtube.com';
 
-    const meta = await resolveVideoContext('abc');
+  it('uses the player endpoint and sends a POST for the video', async () => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url.includes('/youtubei/v1/player')) return playerJson();
+      throw new Error('unexpected ' + url);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const meta = await fetchMetadataFromPlayer('abc', origin);
     expect(meta).not.toBeNull();
     expect(meta!.title).toBe('My Game Video');
     expect(meta!.channel).toBe('SomeChannel');
     expect(meta!.tags).toEqual(['Minecraft', 'Gameplay']);
     expect(meta!.category).toBe('Gaming');
     expect(meta!.description).toContain('Minecraft');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://www.youtube.com/youtubei/v1/player');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toMatchObject({ videoId: 'abc' });
   });
 
-  it('falls back to oEmbed when the watch page fails', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      if (url.includes('/oembed')) return json({ title: 'Embed', author_name: 'EmbedChannel' });
-      return new Response('', { status: 500 });
-    }));
-    const meta = await resolveVideoContext('abc');
-    expect(meta!.title).toBe('Embed');
-    expect(meta!.channel).toBe('EmbedChannel');
-    expect(meta!.tags).toBeUndefined();
+  it('uses the current page origin for mobile/music hosts', async () => {
+    const fetchMock = vi.fn(async (_url: string) => playerJson());
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchMetadataFromPlayer('abc', 'https://m.youtube.com');
+    expect(fetchMock.mock.calls[0]![0]).toBe('https://m.youtube.com/youtubei/v1/player');
   });
 
-  it('returns null when both sources fail', async () => {
+  it('keeps a partial player result instead of discarding it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({
+      videoDetails: { title: 'Only Title', keywords: ['Minecraft'] },
+    })));
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      const meta = await fetchMetadataFromPlayer('abc', origin);
+      expect(meta).toEqual({
+        title: 'Only Title',
+        channel: '',
+        tags: ['Minecraft'],
+      });
+      expect(debug.mock.calls.some((c) => String(c[0]).includes('channel, description, category'))).toBe(true);
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
+  it('returns null when the player endpoint fails', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })));
-    expect(await resolveVideoContext('abc')).toBeNull();
+    expect(await fetchMetadataFromPlayer('abc', origin)).toBeNull();
+  });
+});
+
+describe('fetchMetadataFromWatchPage', () => {
+  it('uses the watch page for full metadata', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/watch')) return new Response(playerHtml(), { status: 200 });
+      throw new Error('unexpected ' + url);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const meta = await fetchMetadataFromWatchPage('abc');
+    expect(meta).not.toBeNull();
+    expect(meta!.title).toBe('My Game Video');
+    expect(meta!.channel).toBe('SomeChannel');
+    expect(meta!.tags).toEqual(['Minecraft', 'Gameplay']);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns null when the watch page fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })));
+    expect(await fetchMetadataFromWatchPage('abc')).toBeNull();
   });
 });
 

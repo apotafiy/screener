@@ -15,9 +15,11 @@ import type {
   MetadataScrapeResponse,
   DescriptionScrapeResponse,
   PlayerMetadataResponse,
+  ScreenVideoResponse,
   NoulDecision,
 } from '../types';
-import { MessageType, Strictness, VerdictSource } from '../types';
+import { EvaluationSource, MessageType, Strictness, VerdictSource } from '../types';
+import { Semaphore } from '../semaphore';
 import { loadSettings, loadApiKey, loadFallbackApiKey } from '../storage';
 import {
   findActiveSchedules,
@@ -40,6 +42,12 @@ import { withLock } from '../mutex';
 const FALLBACK_NOTICE_KEY = 'fallbackNotices';
 const BADGE_ALARM = 'badge-tick';
 
+const SCREEN_METADATA_CONCURRENCY = 4;
+const SCREEN_AI_CONCURRENCY = 3;
+
+const screenMetadataLimiter = new Semaphore(SCREEN_METADATA_CONCURRENCY);
+const screenAiLimiter = new Semaphore(SCREEN_AI_CONCURRENCY);
+
 // ---------------------------------------------------------------------------
 // temp allows (earned bypasses, scoped to a schedule window)
 // ---------------------------------------------------------------------------
@@ -50,16 +58,19 @@ interface FallbackNotice {
   scheduleInstanceKey: string;
 }
 
+/** Loads per-schedule fallback-warning notices. */
 async function loadFallbackNotices(): Promise<Record<string, FallbackNotice>> {
   const raw = await chrome.storage.session.get(FALLBACK_NOTICE_KEY);
   const v = raw[FALLBACK_NOTICE_KEY];
   return typeof v === 'object' && v !== null ? (v as Record<string, FallbackNotice>) : {};
 }
 
+/** Persists fallback-warning notices for the current schedule instances. */
 async function saveFallbackNotices(notices: Record<string, FallbackNotice>): Promise<void> {
   await chrome.storage.session.set({ [FALLBACK_NOTICE_KEY]: notices });
 }
 
+/** Returns true once per schedule instance for the fallback toast. */
 async function shouldShowFallbackToast(
   scheduleId: string,
   scheduleInstanceKey: string,
@@ -74,6 +85,7 @@ async function shouldShowFallbackToast(
   });
 }
 
+/** Drops fallback notices older than the prior day. */
 async function pruneFallbackNotices(now: number): Promise<void> {
   await withLock(async () => {
     const notices = await loadFallbackNotices();
@@ -96,6 +108,7 @@ async function pruneFallbackNotices(now: number): Promise<void> {
 // metadata resolution
 // ---------------------------------------------------------------------------
 
+/** Scrapes title and channel from the open tab as a last resort. */
 async function scrapeTitleChannelFromTab(tabId: number): Promise<VideoMetadata | null> {
   try {
     const res = await chrome.tabs.sendMessage<MetadataRequest, MetadataScrapeResponse>(tabId, { type: MessageType.ScrapeMetadata });
@@ -133,6 +146,7 @@ async function requestPlayerMetadataFromTab(
   }
 }
 
+/** Scrapes the expanded description from the open tab. */
 async function scrapeDescriptionFromTab(tabId: number): Promise<string | undefined> {
   try {
     const res = await chrome.tabs.sendMessage<DescriptionRequest, DescriptionScrapeResponse>(tabId, { type: MessageType.ScrapeDescription });
@@ -155,8 +169,22 @@ interface Evaluation {
   metadata: VideoMetadata | null;
 }
 
+interface EvaluateOptions {
+  source: EvaluationSource;
+  /** Feed surfaces must not scrape the search/feed page as if it were a video. */
+  shouldTabScrape?: boolean;
+  metadataLimiter?: Semaphore;
+  aiLimiter?: Semaphore;
+}
+
+/** Returns the user-facing label for a provider config. */
 function providerLabel(config: ProviderConfig): string {
   return presetById(config.presetId).label;
+}
+
+/** Formats a video id with its title when available. */
+function videoLabel(videoId: string, title?: string): string {
+  return title ? `${videoId} "${title}"` : videoId;
 }
 
 interface Decision {
@@ -173,6 +201,7 @@ async function decide(
   schedule: Schedule,
   meta: VideoMetadata,
   settings: Settings,
+  aiLimiter?: Semaphore,
 ): Promise<Decision> {
   const scheduleRef = { scheduleName: schedule.name, scheduleId: schedule.id };
 
@@ -206,11 +235,13 @@ async function decide(
 
   const apiKey = await loadApiKey();
   const fallbackKey = settings.fallbackProvider ? await loadFallbackApiKey() : '';
-  const result = await judge(
+  /** Runs the judge call behind the optional feed limiter. */
+  const runJudge = () => judge(
     settings.provider, apiKey,
     settings.fallbackProvider, fallbackKey,
     schedule, meta,
   );
+  const result = aiLimiter ? await aiLimiter.run(runJudge) : await runJudge();
 
   if (!result.decision) {
     return {
@@ -241,16 +272,31 @@ async function decide(
   };
 }
 
+/** Evaluates all active schedules for one video, stopping at the first block/error. */
 async function evaluate(
   videoId: string,
   tabId: number,
   settings: Settings,
+  options: EvaluateOptions,
 ): Promise<Evaluation> {
+  const source = options.source;
+  let logSubject = videoId;
+  /** Emits a consistently prefixed evaluation log. */
+  const log = (event: string, detail?: string): void => {
+    if (detail) console.info(`Screener: [${source}] ${logSubject} ${event}`, detail);
+    else console.info(`Screener: [${source}] ${logSubject} ${event}`);
+  };
+
   const now = Date.now();
   const active = findActiveSchedules(settings.schedules, now);
   const strictness = settings.strictness ?? Strictness.Medium;
 
-  if (active.length === 0) return { decisions: [], metadata: null };
+  log('evaluating');
+  if (active.length === 0) {
+    log('no active schedules');
+    return { decisions: [], metadata: null };
+  }
+  log(`active schedules: ${active.map(({ schedule }) => schedule.name).join(', ')}`);
 
   // A schedule with a live earned bypass is skipped; the rest still apply.
   const allows = await loadTempAllows();
@@ -260,6 +306,48 @@ async function evaluate(
 
   let metadata: VideoMetadata | null = null;
   let cacheMeta: VideoMetadata | null = null;
+  let metadataSource: 'player' | 'watch' | 'DOM' | 'none' = 'none';
+  /** Snapshots the current evaluation state. */
+  const buildResult = (): Evaluation => ({
+    decisions,
+    metadata: metadata ?? cacheMeta,
+  });
+
+  // The metadata path is shared by live checks and feed screening. Feed
+  // surfaces disable the open-tab scrape because the tab is a feed, not a
+  // video page; a failed fetch there should fail open instead of using the
+  // wrong page's title/channel.
+  const loadMetadata = async (): Promise<VideoMetadata | null> => {
+    let loaded = await requestPlayerMetadataFromTab(tabId, videoId);
+    if (loaded) {
+      metadataSource = 'player';
+    } else {
+      console.warn(`Screener: player metadata unavailable for ${videoId}; using watch page`);
+      loaded = await fetchMetadataFromWatchPage(videoId);
+      if (loaded) metadataSource = 'watch';
+    }
+
+    if (!loaded?.title && !loaded?.channel) {
+      if (options.shouldTabScrape === false) {
+        console.warn(`Screener: feed metadata unavailable for ${videoId}`);
+        return null;
+      }
+      console.warn(`Screener: watch page metadata unavailable for ${videoId}; scraping the open tab`);
+      loaded = await scrapeTitleChannelFromTab(tabId);
+      if (loaded) metadataSource = 'DOM';
+    }
+    if (!loaded) return null;
+
+    // Description fallback from the open tab when the fetched metadata had none.
+    if (!loaded.description && options.shouldTabScrape !== false) {
+      const description = await scrapeDescriptionFromTab(tabId);
+      if (description) {
+        console.info(`Screener: filled missing description for ${videoId} from the open tab`);
+        loaded.description = description;
+      }
+    }
+    return loaded;
+  };
 
   // Every active schedule must allow. Stop on the first block or error. Each
   // schedule appends one decision so the log records bypasses and cache hits,
@@ -267,6 +355,7 @@ async function evaluate(
   for (const { schedule } of active) {
     const instanceKey = scheduleInstanceKey(schedule, now);
     if (!pendingIds.has(schedule.id)) {
+      log(`schedule "${schedule.name}" bypass`);
       decisions.push({
         verdict: 'allow',
         source: VerdictSource.Bypass,
@@ -292,30 +381,21 @@ async function evaluate(
         hit.viaFallback,
       );
       decisions.push(judgement);
-      if (hit.entry.title) cacheMeta = { title: hit.entry.title, channel: '' };
-      if (judgement.verdict === 'block') {
-        return { decisions, metadata: metadata ?? cacheMeta };
+      if (hit.entry.title) {
+        cacheMeta = { title: hit.entry.title, channel: '' };
+        logSubject = videoLabel(videoId, hit.entry.title);
       }
+      log(`schedule "${schedule.name}" -> ${judgement.verdict} (cache)`);
+      if (judgement.verdict === 'block') return buildResult();
       continue;
     }
 
-    // Context shared by live checks and pasted-link tests: title, channel, tags,
-    // category, and description. Fetched once and reused across schedules.
-    //
-    // Fallback order: page-origin player metadata (content script), watch-page
-    // JSON (service worker), then title/channel scraped from the open tab. All
-    // three produce VideoMetadata, so each can replace the previous result.
     if (!metadata) {
-      let loaded = await requestPlayerMetadataFromTab(tabId, videoId);
+      const loaded = options.metadataLimiter
+        ? await options.metadataLimiter.run(loadMetadata)
+        : await loadMetadata();
       if (!loaded) {
-        console.warn(`Screener: player metadata unavailable for ${videoId}; using watch page`);
-        loaded = await fetchMetadataFromWatchPage(videoId);
-      }
-      if (!loaded?.title && !loaded?.channel) {
-        console.warn(`Screener: watch page metadata unavailable for ${videoId}; scraping the open tab`);
-        loaded = await scrapeTitleChannelFromTab(tabId);
-      }
-      if (!loaded) {
+        log('metadata unavailable');
         console.error(`Screener: could not read metadata for ${videoId}`);
         decisions.push({
           verdict: 'allow',
@@ -325,20 +405,22 @@ async function evaluate(
           scheduleId: schedule.id,
           scheduleInstanceKey: instanceKey,
         });
-        return { decisions, metadata: metadata ?? cacheMeta };
-      }
-      // Description fallback from the open tab when the fetched metadata had none.
-      if (!loaded.description) {
-        const description = await scrapeDescriptionFromTab(tabId);
-        if (description) {
-          console.info(`Screener: filled missing description for ${videoId} from the open tab`);
-          loaded.description = description;
-        }
+        return buildResult();
       }
       metadata = loaded;
+      logSubject = videoLabel(videoId, loaded.title);
+      log(`metadata from ${metadataSource}`);
     }
 
-    const decision = await decide(schedule, metadata, settings);
+    const decision = await decide(schedule, metadata, settings, options.aiLimiter);
+    const detail = decision.judgement.lowConfidence
+      ? `${decision.judgement.reason ?? ''} (close call)`.trim()
+      : decision.judgement.reason ?? decision.judgement.error;
+    log(
+      `schedule "${schedule.name}" -> ${decision.judgement.verdict} (${decision.judgement.source})`,
+      detail,
+    );
+
     if (!decision.nouls) {
       if (decision.judgement.source === VerdictSource.Error) {
         console.error('Screener: AI call failed', decision.judgement.error);
@@ -350,12 +432,10 @@ async function evaluate(
           error: `There was an error calling ${detail}. Full details have been logged in the extension's service worker console (chrome://extensions → Screener → service worker).`,
           scheduleInstanceKey: instanceKey,
         });
-        return { decisions, metadata };
+        return buildResult();
       }
       decisions.push({ ...decision.judgement, scheduleInstanceKey: instanceKey });
-      if (decision.judgement.verdict === 'block') {
-        return { decisions, metadata };
-      }
+      if (decision.judgement.verdict === 'block') return buildResult();
       continue;
     }
 
@@ -367,14 +447,13 @@ async function evaluate(
       primaryError: decision.primaryError,
       scheduleInstanceKey: instanceKey,
     });
-    if (decision.judgement.verdict === 'block') {
-      return { decisions, metadata };
-    }
+    if (decision.judgement.verdict === 'block') return buildResult();
   }
 
-  return { decisions, metadata: metadata ?? cacheMeta };
+  return buildResult();
 }
 
+/** Writes the final outcome to stats and the per-schedule decision log. */
 async function recordDecisions(
   videoId: string,
   final: FinalJudgement,
@@ -413,6 +492,7 @@ async function recordDecisions(
 // badge
 // ---------------------------------------------------------------------------
 
+/** Updates the toolbar badge from the active schedules. */
 async function updateBadge(): Promise<void> {
   const settings = await loadSettings();
   const active = findActiveSchedules(settings.schedules, Date.now());
@@ -434,9 +514,25 @@ chrome.runtime.onMessage.addListener((message: AnyRequest, sender, sendResponse)
   if (message.type === MessageType.Check) {
     const tabId = sender.tab?.id;
     if (tabId === undefined) return false;
-    handleCheck(message.videoId, tabId)
+    handleWatchCheck(message.videoId, tabId)
       .then(sendResponse)
       .catch((e) => sendResponse(failOpenResponse(message.videoId, e)));
+    return true;
+  }
+  if (message.type === MessageType.ScreenVideo) {
+    const tabId = sender.tab?.id;
+    if (tabId === undefined) return false;
+    handleFeedVideo(message.videoId, tabId, message.surface)
+      .then(sendResponse)
+      .catch((e) => {
+        console.error('Screener: unexpected feed screening failure', e);
+        sendResponse({
+          type: MessageType.ScreenVideoResult,
+          videoId: message.videoId,
+          verdict: 'allow',
+          source: VerdictSource.Error,
+        });
+      });
     return true;
   }
   if (message.type === MessageType.TempBypass) {
@@ -468,6 +564,7 @@ chrome.runtime.onMessage.addListener((message: AnyRequest, sender, sendResponse)
   return false;
 });
 
+/** Builds a fail-open response for an unexpected check error. */
 function failOpenResponse(videoId: string, e: unknown): CheckResponse {
   return {
     type: MessageType.CheckResult,
@@ -503,7 +600,8 @@ async function collectFallbackWarning(
   return `${primaryLabel} API failed, used backup provider for ${[...names].join(', ')}. Details logged in the extension's service worker console.`;
 }
 
-async function handleCheck(videoId: string, tabId: number): Promise<CheckResponse> {
+/** Handles a watch-page check and records its outcome. */
+async function handleWatchCheck(videoId: string, tabId: number): Promise<CheckResponse> {
   let decisions: Judgement[] = [];
   let meta: VideoMetadata | null = null;
   let primaryLabel: string | undefined;
@@ -515,7 +613,7 @@ async function handleCheck(videoId: string, tabId: number): Promise<CheckRespons
     tempBypassEnabled = settings.allowTempBypass !== false;
     strictness = settings.strictness ?? Strictness.Medium;
     primaryLabel = providerLabel(settings.provider);
-    const result = await evaluate(videoId, tabId, settings);
+    const result = await evaluate(videoId, tabId, settings, { source: EvaluationSource.Watch });
     decisions = result.decisions;
     meta = result.metadata;
   } catch (e) {
@@ -537,6 +635,9 @@ async function handleCheck(videoId: string, tabId: number): Promise<CheckRespons
     }
   }
   const final = finalizeJudgement(decisions, warning);
+  console.info(
+    `Screener: [${EvaluationSource.Watch}] ${videoLabel(videoId, meta?.title)} final=${final.verdict} (${final.source})`,
+  );
   // A close-call block keeps the bypass even when the global setting is off;
   // otherwise the setting is authoritative. The content script sends this
   // flag back with the bypass request.
@@ -560,6 +661,47 @@ async function handleCheck(videoId: string, tabId: number): Promise<CheckRespons
   };
 }
 
+/**
+ * Screens one feed card without recording audit/log/stats side effects yet.
+ * The content script uses the verdict to reveal or remove the card.
+ */
+async function handleFeedVideo(
+  videoId: string,
+  tabId: number,
+  surface: EvaluationSource,
+): Promise<ScreenVideoResponse> {
+  // TODO: add per-decision audit logging for feed results (Stage 3).
+  try {
+    const settings = await loadSettings();
+    const result = await evaluate(videoId, tabId, settings, {
+      source: surface,
+      shouldTabScrape: false,
+      metadataLimiter: screenMetadataLimiter,
+      aiLimiter: screenAiLimiter,
+    });
+    const final = finalizeJudgement(result.decisions);
+    console.info(
+      `Screener: [${surface}] ${videoLabel(videoId, result.metadata?.title)} final=${final.verdict} (${final.source})`,
+    );
+    return {
+      type: MessageType.ScreenVideoResult,
+      videoId,
+      verdict: final.verdict,
+      source: final.source,
+      ...(final.lowConfidence ? { lowConfidence: true } : {}),
+    };
+  } catch (e) {
+    console.error(`Screener: [${surface}] ${videoId} screening failed`, e);
+    return {
+      type: MessageType.ScreenVideoResult,
+      videoId,
+      verdict: 'allow',
+      source: VerdictSource.Error,
+    };
+  }
+}
+
+/** Builds the popup status response. */
 async function handleExtensionStatus(): Promise<ExtensionStatusResponse> {
   try {
     const settings = await loadSettings();
@@ -584,12 +726,15 @@ async function handleExtensionStatus(): Promise<ExtensionStatusResponse> {
   }
 }
 
+/** Evaluates a pasted link against one schedule without logging it. */
 async function handleTestCriteria(
   schedule: Schedule,
   videoId: string,
 ): Promise<TestCriteriaResponse> {
+  console.info(`Screener: [${EvaluationSource.Test}] ${videoId} evaluate schedule "${schedule.name}"`);
   const meta = await fetchMetadataFromWatchPage(videoId);
   if (!meta) {
+    console.warn(`Screener: [${EvaluationSource.Test}] ${videoId} metadata unavailable`);
     return {
       verdict: 'allow',
       source: VerdictSource.Error,
@@ -598,6 +743,9 @@ async function handleTestCriteria(
   }
   const decision = await decide(schedule, meta, await loadSettings());
   const j = decision.judgement;
+  console.info(
+    `Screener: [${EvaluationSource.Test}] ${videoLabel(videoId, meta.title)} final=${j.verdict} (${j.source})`,
+  );
   return {
     verdict: j.verdict,
     reason: j.source === VerdictSource.Empty ? 'no criteria configured' : j.reason,
@@ -613,6 +761,7 @@ async function handleTestCriteria(
   };
 }
 
+/** Grants a temporary allow for all schedules active at request time. */
 async function handleTempBypass(videoId: string, closeCall: boolean): Promise<void> {
   await withLock(async () => {
     const settings = await loadSettings();

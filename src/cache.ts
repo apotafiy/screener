@@ -9,7 +9,7 @@ import { withLock } from './mutex';
  * write (cachePut) promotes the touched entry to the end.
  */
 const CACHE_KEY = 'verdictCache';
-export const MAX_ENTRIES = 2000;
+export const MAX_ENTRIES = 10000;
 
 /**
  * A stable hash over the parts of a schedule that affect the verdict.

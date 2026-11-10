@@ -106,7 +106,7 @@ src/
   storage.ts      # chrome.storage wrappers (apiKey kept separate from settings)
   schedule.ts     # Weekly window matching (supports midnight spans)
   matcher.ts      # Keyword list matching (title/channel, channel: prefix)
-  cache.ts        # 2000-entry LRU decision cache (storage.session, stores nouls)
+  cache.ts        # 10,000-entry LRU decision cache (storage.session, stores nouls)
   stats.ts        # Daily counters with lazy midnight rollover
   log.ts          # Decision log (last 1000 schedule decisions)
   youtube.ts      # Video ID parsing, context resolver (Innertube player, watch page JSON)
@@ -120,7 +120,9 @@ src/
   background/
     service-worker.ts   # Full decision pipeline, message routing, badge, alarms
   content/
+    index.ts      # Single IIFE entry: gate + feed filter
     gate.ts       # Overlay, playback suppression, SPA nav, countdown
+    feed.ts       # Search result screening, queue, hidden pending cards
   options/
     main.tsx      # React entry point
     App.tsx       # Top-level component, state management
@@ -130,6 +132,7 @@ src/
     App.tsx       # Status display and daily counts
   public/
     gate.css      # Gate overlay styles (copied verbatim to dist/)
+    feed.css      # Search feed pending/blocked styles
 ```
 
 ## Build

@@ -23,12 +23,13 @@ enum OverlayKind {
   // ---------------------------------------------------------------------------
   // DOM helpers
   // ---------------------------------------------------------------------------
+  /** Shorthand querySelector helpers. */
   const $ = (sel: string, parent: ParentNode = document): Element | null =>
     parent.querySelector(sel);
   const $$ = (sel: string, parent: ParentNode = document): NodeListOf<Element> =>
     parent.querySelectorAll(sel);
 
-  // Tiny no-dependency Document.createElement wrapper for constructing the overlay DOM.
+  /** Tiny Document.createElement wrapper for constructing overlay DOM. */
   function el<K extends keyof HTMLElementTagNameMap>(
     tag: K,
     attrs: Record<string, string> = {},
@@ -40,6 +41,7 @@ enum OverlayKind {
     return e;
   }
 
+  /** Removes all children from an element. */
   function empty(parent: HTMLElement): void {
     while (parent.firstChild) parent.firstChild.remove();
   }
@@ -47,6 +49,7 @@ enum OverlayKind {
   // ---------------------------------------------------------------------------
   // URL helpers
   // ---------------------------------------------------------------------------
+  /** Returns the current watch/shorts/live video id, or null. */
   function getVideoId(): string | null {
     const url = new URL(location.href);
     if (url.pathname === '/watch') return url.searchParams.get('v');
@@ -55,6 +58,7 @@ enum OverlayKind {
     return null;
   }
 
+  /** True when the current URL is a video page. */
   function isWatchPage(): boolean {
     return getVideoId() !== null;
   }
@@ -65,6 +69,7 @@ enum OverlayKind {
   let playObserver: MutationObserver | null = null;
   const suppressedVideos: Set<HTMLVideoElement> = new Set();
 
+  /** Mutes, pauses, and re-traps a video element. */
   function silenceVideo(v: HTMLVideoElement): void {
     if (suppressedVideos.has(v)) return;
     suppressedVideos.add(v);
@@ -77,6 +82,7 @@ enum OverlayKind {
 
   // Uses once:true and re-registers on each fire rather than a persistent
   // listener, so each play attempt is a clean, isolated one-shot trap.
+  /** Re-traps a suppressed video if the player tries to resume it. */
   function onVideoPlay(e: Event): void {
     const v = e.target as HTMLVideoElement;
     if (!suppressedVideos.has(v)) return;
@@ -108,6 +114,7 @@ enum OverlayKind {
     if (playObserver) { playObserver.disconnect(); playObserver = null; }
   }
 
+  /** Mutes and pauses current and newly added video elements. */
   function suppressPlayback(): void {
     releaseSuppression();
     $$('video').forEach((v) => silenceVideo(v as HTMLVideoElement));
@@ -154,6 +161,7 @@ enum OverlayKind {
     return best;
   }
 
+  /** Unmutes and resumes the active video after an allow. */
   function restorePlayback(): void {
     const videos = [...suppressedVideos];
     releaseSuppression();
@@ -188,6 +196,8 @@ enum OverlayKind {
   const NON_HOST_TAGS = new Set(['VIDEO', 'AUDIO', 'IFRAME', 'OBJECT', 'EMBED']);
 
   /** A fullscreen video/iframe/shadow host cannot render a child overlay. */
+  /** True when an element can contain the overlay outside its shadow tree. */
+  /** True when an element can contain the overlay outside a shadow tree. */
   function canHostOverlay(el: Element | null): el is HTMLElement {
     return (
       el instanceof HTMLElement &&
@@ -196,6 +206,7 @@ enum OverlayKind {
     );
   }
 
+  /** Chooses the fullscreen element or document root for overlay mounting. */
   function overlayHost(): HTMLElement {
     const fs = document.fullscreenElement;
     return canHostOverlay(fs) ? fs : document.documentElement;
@@ -206,12 +217,13 @@ enum OverlayKind {
     return !document.fullscreenElement || canHostOverlay(document.fullscreenElement);
   }
 
-  /** Keeps a layer in the current top-layer host, or back on the page. */
+  /** Moves an overlay or toast into the current top-layer host. */
   function mountLayer(node: HTMLElement): void {
     const host = overlayHost();
     if (node.parentNode !== host) host.append(node);
   }
 
+  /** Creates or reuses the overlay root. */
   function getOverlay(): HTMLElement {
     if (!root) {
       root = el('div', { id: 'screener-overlay' });
@@ -224,6 +236,7 @@ enum OverlayKind {
     return root;
   }
 
+  /** Renders the temporary checking overlay. */
   function showChecking(): void {
     overlayKind = OverlayKind.Checking;
     stopCountdown();
@@ -237,6 +250,7 @@ enum OverlayKind {
     );
   }
 
+  /** Renders the blocked overlay with the optional bypass control. */
   function showBlocked(
     reason: string | undefined,
     scheduleName: string,
@@ -277,6 +291,7 @@ enum OverlayKind {
     }
   }
 
+  /** Renders the error overlay with retry and continue actions. */
   function showError(message: string, providerInfo: string): void {
     overlayKind = OverlayKind.Error;
     stopCountdown();
@@ -305,6 +320,7 @@ enum OverlayKind {
   }
 
   /** Removes the overlay and stops the countdown without touching playback. */
+  /** Removes the overlay without resuming playback. */
   function removeOverlay(): void {
     stopCountdown();
     overlayKind = null;
@@ -312,12 +328,14 @@ enum OverlayKind {
   }
 
   /** Removes the overlay and resumes playback the overlay was suppressing. */
+  /** Removes the overlay and restores playback. */
   function destroyOverlay(): void {
     removeOverlay();
     restorePlayback();
   }
 
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Shows or refreshes the fallback-warning toast. */
   function showToast(message: string): void {
     if (toastTimer) clearTimeout(toastTimer);
     let toast = document.getElementById('screener-toast');
@@ -346,6 +364,7 @@ enum OverlayKind {
   let countdownInterval: ReturnType<typeof setInterval> | null = null;
   let countdownSeconds = 5 * 60;
 
+  /** Updates the bypass countdown text on the button. */
   function updateCountdownLabel(): void {
     const btn = $('#so-watch-anyway') as HTMLButtonElement | null;
     if (!btn) return;
@@ -354,6 +373,7 @@ enum OverlayKind {
     btn.textContent = `Watch anyway (${m}:${String(s).padStart(2, '0')})`;
   }
 
+  /** Starts the five-minute bypass countdown. */
   function setupCountdown(closeCall: boolean): void {
     if (countdownInterval) return; // already counting
     countdownSeconds = 5 * 60;
@@ -382,6 +402,7 @@ enum OverlayKind {
     }, 1000);
   }
 
+  /** Stops and clears the bypass countdown. */
   function stopCountdown(): void {
     if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
   }
@@ -397,6 +418,7 @@ enum OverlayKind {
    * alone. If the browser refuses to exit and the fullscreen host cannot hold
    * a child overlay, there is no DOM overlay to show.
    */
+  /** Exits fullscreen only if the current video still matches. */
   async function leaveFullscreenForOverlay(videoId: string): Promise<boolean> {
     if (!document.fullscreenElement) return true;
     if (getVideoId() !== videoId) return false;
@@ -409,6 +431,7 @@ enum OverlayKind {
     return getVideoId() === videoId;
   }
 
+  /** Runs one check for the current video and applies the overlay. */
   async function doCheck(): Promise<void> {
     const videoId = getVideoId();
     if (!videoId) return;
@@ -475,6 +498,7 @@ enum OverlayKind {
   // ---------------------------------------------------------------------------
   // Content scraping (called by the service worker via sendMessage)
   // ---------------------------------------------------------------------------
+  /** Resolves when any selector appears, or after the timeout. */
   function waitForElement(selectors: string[], timeoutMs: number): Promise<void> {
     return new Promise((resolve) => {
       for (const sel of selectors) {
@@ -482,6 +506,7 @@ enum OverlayKind {
         if (found) { resolve(); return; }
       }
 
+      /** Stops the selector observer and timeout. */
       function cleanup(): void {
         clearTimeout(timer);
         obs.disconnect();
@@ -500,11 +525,13 @@ enum OverlayKind {
     });
   }
 
+  /** Reads the video title from the document title. */
   function parseTitle(): string {
     const t = document.title.replace(/\s*-\s*YouTube\s*$/i, '').trim();
     return t || 'Unknown';
   }
 
+  /** Reads the channel name from the watch-page DOM. */
   function parseChannel(): string {
     const sel = '#owner #channel-name yt-formatted-string a, ytd-channel-name #text a, #owner yt-formatted-string.ytd-channel-name a';
     const el = $(sel);
@@ -512,6 +539,7 @@ enum OverlayKind {
     return 'Unknown';
   }
 
+  /** Reads the expanded description text from the watch-page DOM. */
   function parseDescription(): string {
     const sel = '#description-inline-expander yt-attributed-string span, ytd-text-inline-expander yt-formatted-string';
     const el = $(sel);
@@ -521,6 +549,7 @@ enum OverlayKind {
 
   chrome.runtime.onMessage.addListener((msg: ContentRequest, _sender, sendResponse) => {
     if (msg.type === MessageType.PlayerMetadata) {
+      /** Sends the player metadata response to the service worker. */
       const respond = (metadata: VideoMetadata | null): void => {
         const res: PlayerMetadataResponse = {
           type: MessageType.PlayerMetadataResult,
@@ -556,6 +585,7 @@ enum OverlayKind {
   // ---------------------------------------------------------------------------
   // SPA navigation detection
   // ---------------------------------------------------------------------------
+  /** Handles a YouTube SPA navigation and checks the destination video. */
   function onNavigate(): void {
     const videoId = getVideoId();
     if (videoId && videoId === currentCheckVideoId) return;
@@ -608,8 +638,10 @@ enum OverlayKind {
     if (toast) mountLayer(toast);
   });
 
-  // ---------------------------------------------------------------------------
-  // Init
-  // ---------------------------------------------------------------------------
-  if (isWatchPage()) doCheck();
+  /** Starts the watch-page gate on the initial page load. */
+  function startGate(): void {
+    if (isWatchPage()) doCheck();
+  }
+
+  startGate();
 })();

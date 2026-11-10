@@ -1,0 +1,50 @@
+/* Pending feed cards: hidden with visibility so the card keeps its layout slot
+   and stays observable. Approved cards become visible in place. */
+.screener-pending-card {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+[data-screener-blocked="true"] {
+  display: none !important;
+}
+
+.screener-early-block {
+  width: 100%;
+  min-height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 32px 24px;
+  text-align: center;
+  grid-column: 1 / -1;
+  color: var(--yt-spec-text-secondary, #606060);
+}
+
+.screener-early-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.screener-early-body {
+  max-width: 440px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.screener-shorts-placeholder {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--yt-spec-text-secondary, #606060);
+  font-size: 14px;
+}

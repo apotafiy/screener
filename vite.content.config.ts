@@ -10,7 +10,7 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       input: {
-        gate: src('content/gate.ts'),
+        content: src('content/index.ts'),
       },
       output: {
         entryFileNames: '[name].js',

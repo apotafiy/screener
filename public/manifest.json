@@ -11,8 +11,8 @@
   "background": { "service_worker": "service-worker.js", "type": "module" },
   "content_scripts": [{
     "matches": ["*://*.youtube.com/*"],
-    "js": ["gate.js"],
-    "css": ["gate.css"],
+    "js": ["content.js"],
+    "css": ["gate.css", "feed.css"],
     "run_at": "document_start",
     "all_frames": false
   }],

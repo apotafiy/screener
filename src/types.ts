@@ -4,6 +4,7 @@ export type PresetId = 'openrouter-jev' | 'typesafe' | 'mock';
 
 export enum MessageType {
   Check = 'CHECK',
+  ScreenVideo = 'SCREEN_VIDEO',
   ScrapeMetadata = 'SCRAPE_METADATA',
   ScrapeDescription = 'SCRAPE_DESCRIPTION',
   PlayerMetadata = 'PLAYER_METADATA',
@@ -12,6 +13,7 @@ export enum MessageType {
   ExtensionStatus = 'EXTENSION_STATUS',
   TestCriteria = 'TEST_CRITERIA',
   CheckResult = 'CHECK_RESULT',
+  ScreenVideoResult = 'SCREEN_VIDEO_RESULT',
   ExtensionStatusResult = 'EXTENSION_STATUS_RESULT',
   ScrapeResult = 'SCRAPE_RESULT',
   DescriptionResult = 'DESCRIPTION_RESULT',
@@ -83,6 +85,15 @@ export enum VerdictSource {
   Bypass = 'bypass',
   Empty = 'empty',
   Dormant = 'dormant',
+}
+
+/** Contexts that can produce a decision. */
+export enum EvaluationSource {
+  Watch = 'watch',
+  Test = 'test',
+  Search = 'search',
+  Trending = 'trending',
+  Subscriptions = 'subscriptions',
 }
 
 export interface VideoMetadata {
@@ -171,6 +182,11 @@ export interface LogEntry {
 }
 
 export type CheckRequest = { type: MessageType.Check; videoId: string };
+export type ScreenVideoRequest = {
+  type: MessageType.ScreenVideo;
+  videoId: string;
+  surface: EvaluationSource;
+};
 export type MetadataRequest = { type: MessageType.ScrapeMetadata };
 export type DescriptionRequest = { type: MessageType.ScrapeDescription };
 /** Service worker -> content script: fetch player metadata from the page origin. */
@@ -192,7 +208,7 @@ export type TestCriteriaRequest = {
 };
 
 /** Messages sent from the content script (require sender.tab.id). */
-export type TabRequest = CheckRequest | TempBypassRequest;
+export type TabRequest = CheckRequest | ScreenVideoRequest | TempBypassRequest;
 
 /** Messages sent from extension pages (options/popup). */
 export type ExtensionRequest = ExtensionStatusRequest | TestCriteriaRequest;
@@ -207,6 +223,24 @@ export interface CheckResponse extends FinalJudgement {
   canBypass?: boolean;
   /** True when the bypass is offered despite the global setting, for a close call. */
   bypassOverride?: boolean;
+}
+
+export interface ScreenVideoResponse {
+  type: MessageType.ScreenVideoResult;
+  videoId: string;
+  verdict: Verdict;
+  source: VerdictSource;
+  /** Close-call blocks stay visible in the feed. */
+  lowConfidence?: boolean;
+}
+
+/** One feed card while its verdict is pending. */
+export interface CardState {
+  card: HTMLElement;
+  videoId: string;
+  screenRunId: number;
+  nearViewport: boolean;
+  resolved: boolean;
 }
 
 export interface ActiveScheduleStatus {
